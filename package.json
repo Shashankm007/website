@@ -1,0 +1,21 @@
+{
+  "name": "forge3d",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HashTag Creations — root task runner for the backend (NestJS) + frontend (Next.js)",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta -k \"npm --prefix backend run start:dev\" \"npm --prefix frontend run dev\"",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "npm --prefix backend run prisma:generate && npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "prod": "npm run build && npm run start",
+    "start": "concurrently -n api,web -c blue,magenta -k \"npm --prefix backend run start:prod\" \"npm --prefix frontend run start\"",
+    "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install",
+    "db:setup": "npm --prefix backend run prisma:deploy && npm --prefix backend run prisma:seed",
+    "db:reset": "npm --prefix backend run db:reset",
+    "stop": "pkill -f 'website/node_modules/.bin/concurrently' 2>/dev/null; pkill -f 'website/backend/node_modules/.bin/nest' 2>/dev/null; pkill -f 'website/frontend/node_modules/.bin/next' 2>/dev/null; (lsof -ti:4000 | xargs kill -9 2>/dev/null || true); (lsof -ti:3000 | xargs kill -9 2>/dev/null || true); echo 'Stopped api (:4000) and web (:3000)'"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

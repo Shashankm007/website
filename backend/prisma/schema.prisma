@@ -1,0 +1,718 @@
+// HashTag Creations — canonical data model (single source of truth).
+// PostgreSQL + Prisma. Money is stored as integer minor units (paise for INR).
+// See CONVENTIONS.md for the contract that the API/UI build against.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum AuthProvider {
+  CREDENTIALS
+  GOOGLE
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+// How stock is handled for a product.
+enum FulfillmentType {
+  STOCKED       // tracked inventory, decremented on order
+  MADE_TO_ORDER // printed on demand, no fixed stock
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO    // mp4/webm product video
+  MODEL_3D // STL / OBJ
+}
+
+// Whether a product needs the customer to upload a file before ordering.
+enum CustomizationType {
+  NONE
+  STL_UPLOAD   // customer uploads an STL for a custom print
+  PHOTO_UPLOAD // customer uploads a photo (e.g. lithophane frames)
+}
+
+enum OrderStatus {
+  PENDING   // created, awaiting payment
+  PAID      // payment captured
+  PRINTING  // in production
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  REQUIRES_PAYMENT
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  RAZORPAY
+}
+
+enum AddressType {
+  SHIPPING
+  BILLING
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum InventoryReason {
+  RESTOCK
+  ORDER
+  CANCELLATION
+  ADJUSTMENT
+  RETURN
+}
+
+enum ChatRole {
+  USER
+  BOT
+  ADMIN
+}
+
+enum ChatStatus {
+  OPEN
+  HANDLED
+  CLOSED
+}
+
+// ----------------------------------------------------------------------------
+// Users & auth
+// ----------------------------------------------------------------------------
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  passwordHash  String? // null for pure-OAuth accounts
+  name          String?
+  phone         String?
+  role          Role         @default(CUSTOMER)
+  status        UserStatus   @default(ACTIVE)
+  provider      AuthProvider @default(CREDENTIALS)
+  emailVerified DateTime? // null = unverified
+  avatarUrl     String?
+  lastLoginAt   DateTime?
+
+  addresses     Address[]
+  orders        Order[]
+  cart          Cart?
+  reviews       Review[]
+  wishlist      WishlistItem[]
+  refreshTokens RefreshToken[]
+  tokens        VerificationToken[]
+  auditLogs     AuditLog[]
+  customUploads CustomUpload[]
+  chats         ChatConversation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+// Hashed, rotating refresh tokens (one row per active session/device).
+model RefreshToken {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique // sha256 of the raw token
+  userAgent   String?
+  ip          String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  replacedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+enum VerificationTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model VerificationToken {
+  id        String                @id @default(cuid())
+  userId    String
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      VerificationTokenType
+  tokenHash String                @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime              @default(now())
+
+  @@index([userId, type])
+  @@map("verification_tokens")
+}
+
+model Address {
+  id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       AddressType @default(SHIPPING)
+  fullName   String
+  line1      String
+  line2      String?
+  city       String
+  state      String?
+  postalCode String
+  country    String      @default("IN")
+  phone      String?
+  isDefault  Boolean     @default(false)
+
+  shippingOrders Order[] @relation("ShippingAddress")
+  billingOrders  Order[] @relation("BillingAddress")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ----------------------------------------------------------------------------
+// Catalog
+// ----------------------------------------------------------------------------
+
+model Category {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String?
+  imageUrl    String?
+  // self-referential hierarchy
+  parentId    String?
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryTree")
+  position    Int        @default(0)
+
+  products ProductCategory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id              String          @id @default(cuid())
+  name            String
+  slug            String          @unique
+  description     String // long form, markdown allowed (sanitized on render)
+  shortDescription String?
+  sku             String          @unique
+  priceCents      Int // base price in minor units (paise, INR)
+  compareAtCents  Int? // optional "was" price
+  currency        String          @default("INR")
+  status          ProductStatus   @default(DRAFT)
+  fulfillment     FulfillmentType @default(STOCKED)
+  customizationType CustomizationType @default(NONE) // requires a customer file upload?
+  featured        Boolean         @default(false)
+  weightGrams     Int? // for shipping calc
+  // denormalized aggregates for fast sorting/filtering
+  ratingAvg       Float           @default(0)
+  ratingCount     Int             @default(0)
+  salesCount      Int             @default(0)
+
+  categories ProductCategory[]
+  tags       ProductTag[]
+  media      ProductMedia[]
+  options    ProductOption[]
+  variants   ProductVariant[]
+  inventory  Inventory?
+  reviews    Review[]
+  orderItems OrderItem[]
+  cartItems  CartItem[]
+  wishlist   WishlistItem[]
+  ledger     InventoryLedger[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([featured])
+  @@index([priceCents])
+  @@index([ratingAvg])
+  @@index([salesCount])
+  @@index([createdAt])
+  // Full-text search is added via raw migration (GIN index on to_tsvector(name||description)).
+  @@map("products")
+}
+
+// Many-to-many product <-> category (a product can sit in multiple categories).
+model ProductCategory {
+  productId  String
+  categoryId String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([productId, categoryId])
+  @@index([categoryId])
+  @@map("product_categories")
+}
+
+model Tag {
+  id       String       @id @default(cuid())
+  name     String       @unique
+  slug     String       @unique
+  products ProductTag[]
+
+  @@map("tags")
+}
+
+model ProductTag {
+  productId String
+  tagId     String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([productId, tagId])
+  @@index([tagId])
+  @@map("product_tags")
+}
+
+model ProductMedia {
+  id        String    @id @default(cuid())
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type      MediaType @default(IMAGE)
+  url       String
+  objectKey String? // S3/R2 key
+  alt       String?
+  position  Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_media")
+}
+
+// Customization dimension (Size, Material, Color, ...). Custom text handled separately.
+model ProductOption {
+  id        String              @id @default(cuid())
+  productId String
+  product   Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String // e.g. "Material"
+  position  Int                 @default(0)
+  values    ProductOptionValue[]
+
+  @@unique([productId, name])
+  @@map("product_options")
+}
+
+model ProductOptionValue {
+  id           String        @id @default(cuid())
+  optionId     String
+  option       ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  value        String // e.g. "PLA", "Red", "Large"
+  priceDeltaCents Int        @default(0) // upcharge for this value
+  hex          String? // for color swatches
+  position     Int           @default(0)
+
+  @@unique([optionId, value])
+  @@map("product_option_values")
+}
+
+// A concrete buyable combination (optional; STOCKED products may track stock per variant).
+model ProductVariant {
+  id              String  @id @default(cuid())
+  productId       String
+  product         Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku             String  @unique
+  // map of optionName -> value, e.g. { "Material": "PLA", "Color": "Red" }
+  optionsJson     Json
+  priceCents      Int // resolved price for this variant
+  stock           Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+// ----------------------------------------------------------------------------
+// Inventory
+// ----------------------------------------------------------------------------
+
+model Inventory {
+  id            String  @id @default(cuid())
+  productId     String  @unique
+  product       Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity      Int     @default(0)
+  reserved      Int     @default(0) // held by unpaid orders
+  lowStockThreshold Int @default(5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("inventory")
+}
+
+// Append-only audit trail of every stock movement.
+model InventoryLedger {
+  id        String          @id @default(cuid())
+  productId String
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  delta     Int // +restock / -order
+  reason    InventoryReason
+  orderId   String?
+  note      String?
+  createdAt DateTime        @default(now())
+
+  @@index([productId])
+  @@map("inventory_ledger")
+}
+
+// ----------------------------------------------------------------------------
+// Cart & wishlist
+// ----------------------------------------------------------------------------
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String?    @unique // null for guest carts keyed by token
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestToken String?   @unique
+  items     CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("carts")
+}
+
+model CartItem {
+  id           String   @id @default(cuid())
+  cartId       String
+  cart         Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId    String?
+  quantity     Int      @default(1)
+  // chosen customization snapshot: { "Material": "PLA", "Color": "Red" }
+  optionsJson  Json?
+  customText   String? // engraving
+  customUploadId String?
+  unitPriceCents Int // resolved unit price at time of add
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId, variantId, customText])
+  @@index([cartId])
+  @@map("cart_items")
+}
+
+model WishlistItem {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("wishlist_items")
+}
+
+// Customer-uploaded STL for custom prints.
+model CustomUpload {
+  id         String  @id @default(cuid())
+  userId     String?
+  user       User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  fileName   String
+  objectKey  String
+  url        String
+  sizeBytes  Int
+  status     String  @default("UPLOADED") // UPLOADED | QUOTED | ORDERED
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@map("custom_uploads")
+}
+
+// ----------------------------------------------------------------------------
+// Orders & payments
+// ----------------------------------------------------------------------------
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique // human friendly, e.g. F3D-2026-0001
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status      OrderStatus @default(PENDING)
+  email       String // contact email (guest checkout supported)
+
+  // snapshot of money (cents)
+  subtotalCents Int
+  discountCents Int     @default(0)
+  shippingCents Int     @default(0)
+  taxCents      Int     @default(0)
+  totalCents    Int
+  currency      String  @default("INR")
+
+  couponId          String?
+  coupon            Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  shippingAddressId String?
+  shippingAddress   Address? @relation("ShippingAddress", fields: [shippingAddressId], references: [id], onDelete: SetNull)
+  billingAddressId  String?
+  billingAddress    Address? @relation("BillingAddress", fields: [billingAddressId], references: [id], onDelete: SetNull)
+  // frozen address snapshot in case the Address row changes/deletes later
+  shippingSnapshot  Json?
+
+  items    OrderItem[]
+  payment  Payment?
+  events   OrderEvent[]
+
+  trackingNumber String?
+  carrier        String?
+  notes          String?
+
+  // Shiprocket fulfilment
+  shiprocketOrderId    String?
+  shiprocketShipmentId String?
+  awbCode              String? // air waybill / tracking code
+  courierName          String?
+  trackingUrl          String? // public tracking link
+
+  placedAt   DateTime?
+  paidAt     DateTime?
+  shippedAt  DateTime?
+  deliveredAt DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variantId   String?
+  // immutable snapshot at purchase time
+  nameSnapshot String
+  skuSnapshot  String
+  imageSnapshot String?
+  optionsJson  Json?
+  customText   String?
+  quantity     Int
+  unitPriceCents Int
+  totalCents     Int
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// Status-change history for the order timeline + email triggers.
+model OrderEvent {
+  id        String      @id @default(cuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  message   String?
+  createdBy String? // user/admin id or "system"
+  createdAt DateTime    @default(now())
+
+  @@index([orderId])
+  @@map("order_events")
+}
+
+model Payment {
+  id              String          @id @default(cuid())
+  orderId         String          @unique
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider        PaymentProvider @default(RAZORPAY)
+  status          PaymentStatus   @default(REQUIRES_PAYMENT)
+  amountCents     Int
+  currency        String          @default("INR")
+  razorpayOrderId   String?       @unique // Razorpay order id (order_...)
+  razorpayPaymentId String?       @unique // Razorpay payment id (pay_...)
+  razorpaySignature String? // checkout signature returned to the client
+  failureReason   String?
+  refundedCents   Int             @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("payments")
+}
+
+// ----------------------------------------------------------------------------
+// Reviews & coupons
+// ----------------------------------------------------------------------------
+
+model Review {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int // 1..5
+  title     String?
+  body      String?
+  // verified purchase if the user has a delivered order containing this product
+  verified  Boolean @default(false)
+  approved  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, userId]) // one review per user per product
+  @@index([productId])
+  @@map("reviews")
+}
+
+model Coupon {
+  id            String       @id @default(cuid())
+  code          String       @unique
+  description   String?
+  type          DiscountType
+  value         Int // percent (0..100) or fixed cents
+  minSubtotalCents Int       @default(0)
+  maxRedemptions Int?
+  redemptions    Int         @default(0)
+  perUserLimit   Int?
+  startsAt       DateTime?
+  expiresAt      DateTime?
+  active         Boolean     @default(true)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@map("coupons")
+}
+
+// ----------------------------------------------------------------------------
+// Admin / audit
+// ----------------------------------------------------------------------------
+
+model AuditLog {
+  id        String  @id @default(cuid())
+  actorId   String?
+  actor     User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action    String // e.g. "product.update"
+  entity    String // e.g. "Product"
+  entityId  String?
+  metadata  Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
+
+// Site-wide settings (singleton-ish key/value).
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+// ----------------------------------------------------------------------------
+// Support chat (chatbot + admin inbox)
+// ----------------------------------------------------------------------------
+
+model ChatConversation {
+  id          String     @id @default(cuid())
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  visitorName String?
+  status      ChatStatus @default(OPEN)
+  needsHuman  Boolean    @default(false) // bot couldn't answer / user asked for a human
+  lastMessageAt DateTime @default(now())
+
+  messages ChatMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([needsHuman])
+  @@index([lastMessageAt])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           ChatRole
+  content        String
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId])
+  @@map("chat_messages")
+}
+
+// RAG knowledge base: embedded chunks the chatbot retrieves over.
+model KnowledgeChunk {
+  id        String   @id @default(cuid())
+  source    String // 'policy' | 'product' | 'faq'
+  refId     String? // e.g. product id when source = 'product'
+  title     String
+  content   String
+  embedding Float[] // embedding vector (remote or local)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([source])
+  @@map("knowledge_chunks")
+}
