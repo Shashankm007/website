@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SlidersHorizontal, X } from 'lucide-react';
 import type { Category } from '@/types';
 import { cn } from '@/lib/utils';
+import { useApi } from '@/lib/use-api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
@@ -57,6 +58,7 @@ function FiltersForm({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const flat = useMemo(() => flattenCategories(categories), [categories]);
+  const { data: availableTags } = useApi<string[]>('/products/tags');
 
   const [state, setState] = useState<FilterState>(() => stateFromParams(searchParams));
 
@@ -67,6 +69,20 @@ function FiltersForm({
 
   const set = <K extends keyof FilterState>(key: K, value: FilterState[K]) =>
     setState((prev) => ({ ...prev, [key]: value }));
+
+  // Tags are stored as a comma-separated string in state/URL; derive the
+  // selected set and toggle membership when a checkbox is clicked.
+  const selectedTags = useMemo(
+    () => state.tags.split(',').map((s) => s.trim()).filter(Boolean),
+    [state.tags],
+  );
+  const toggleTag = (t: string) => {
+    const exists = selectedTags.some((s) => s.toLowerCase() === t.toLowerCase());
+    const next = exists
+      ? selectedTags.filter((s) => s.toLowerCase() !== t.toLowerCase())
+      : [...selectedTags, t];
+    set('tags', next.join(','));
+  };
 
   const apply = () => {
     const sp = new URLSearchParams(searchParams.toString());
@@ -189,14 +205,28 @@ function FiltersForm({
       {/* Tags */}
       <fieldset className="space-y-2">
         <legend className="mb-2 text-sm font-semibold text-slate-900">Tags</legend>
-        <Input
-          type="text"
-          placeholder="e.g. minimalist, gift"
-          aria-label="Tags (comma separated)"
-          value={state.tags}
-          onChange={(e) => set('tags', e.target.value)}
-        />
-        <p className="text-xs text-slate-400">Separate multiple tags with commas.</p>
+        {availableTags === undefined ? (
+          <p className="text-xs text-slate-400">Loading tags…</p>
+        ) : availableTags.length === 0 ? (
+          <p className="text-xs text-slate-400">No tags available.</p>
+        ) : (
+          <div className="space-y-2">
+            {availableTags.map((t) => {
+              const checked = selectedTags.some((s) => s.toLowerCase() === t.toLowerCase());
+              return (
+                <label key={t} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleTag(t)}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-300"
+                  />
+                  <span className="line-clamp-1">{t}</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
       </fieldset>
 
       <div className="flex gap-2 pt-2">

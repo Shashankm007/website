@@ -75,6 +75,7 @@ export interface OptionValue {
   value: string;
   priceDeltaCents: number;
   hex?: string | null;
+  dimension?: string | null;
 }
 export interface ProductOption {
   id: string;
@@ -98,6 +99,7 @@ export interface ProductCard {
   price: string;
   compareAtCents?: number | null;
   imageUrl?: string | null;
+  images?: string[];
   ratingAvg: number;
   ratingCount: number;
   fulfillment: FulfillmentType;
@@ -126,6 +128,8 @@ export interface CartItem {
   variantId?: string | null;
   options?: Record<string, string>;
   customText?: string | null;
+  modelLink?: string | null;
+  customUploadUrl?: string | null;
   quantity: number;
   unitPriceCents: number;
   lineTotalCents: number;
@@ -147,6 +151,8 @@ export interface OrderItem {
   imageSnapshot?: string | null;
   options?: Record<string, string> | null;
   customText?: string | null;
+  modelLink?: string | null;
+  customUploadUrl?: string | null;
   quantity: number;
   unitPriceCents: number;
   totalCents: number;

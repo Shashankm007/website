@@ -20,13 +20,21 @@ export class ProductsController {
     return this.products.findAll(query);
   }
 
-  // NOTE: must be declared before ':slug' so "featured" isn't treated as a slug.
+  // NOTE: literal routes must be declared before ':slug' so they aren't treated as slugs.
   @Public()
   @UseGuards(OptionalJwtAuthGuard)
   @Get('featured')
   @ApiOperation({ summary: 'Curated "star" products for the landing page (ordered)' })
   findFeatured() {
     return this.products.findFeatured();
+  }
+
+  @Public()
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get('tags')
+  @ApiOperation({ summary: 'All product tag names (for filtering / admin tag picker)' })
+  listTags() {
+    return this.products.listTags();
   }
 
   @Public()

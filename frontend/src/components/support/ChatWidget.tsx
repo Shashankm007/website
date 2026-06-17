@@ -20,24 +20,33 @@ interface WidgetMessage {
 interface StoredChat {
   conversationId: string | null;
   messages: WidgetMessage[];
+  savedAt?: number; // last-activity timestamp (ms)
 }
 
 const STORAGE_KEY = 'hashtag_chat';
+// Reset the chat after this much inactivity — a visitor returning later starts fresh.
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const GREETING =
   "Hi! I'm the HashTag assistant. Ask me about products, orders, shipping or custom prints — how can I help?";
 
 function loadStored(): StoredChat {
-  if (typeof window === 'undefined') return { conversationId: null, messages: [] };
+  const empty: StoredChat = { conversationId: null, messages: [] };
+  if (typeof window === 'undefined') return empty;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { conversationId: null, messages: [] };
+    if (!raw) return empty;
     const parsed = JSON.parse(raw) as StoredChat;
+    // Expire stale sessions (older than the TTL since last activity).
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > SESSION_TTL_MS) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return empty;
+    }
     return {
       conversationId: parsed.conversationId ?? null,
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
     };
   } catch {
-    return { conversationId: null, messages: [] };
+    return empty;
   }
 }
 
@@ -65,7 +74,7 @@ export function ChatWidget() {
   // Persist whenever conversation state changes (after hydration).
   useEffect(() => {
     if (!hydrated) return;
-    const payload: StoredChat = { conversationId, messages };
+    const payload: StoredChat = { conversationId, messages, savedAt: Date.now() };
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {

@@ -4,7 +4,9 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import { raw } from 'express';
 import helmet from 'helmet';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -27,6 +29,18 @@ async function bootstrap() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
+
+  // --- Local-disk storage driver (dev fallback when no S3 credentials) ---
+  // Only mount the public upload sink + static serving when actually in local
+  // mode. In production with missing creds the UploadsService constructor has
+  // already failed fast, so this branch is dev-only.
+  const s3cfg = config.get<{ accessKeyId?: string; secretAccessKey?: string }>('s3');
+  const localStorage = !s3cfg?.accessKeyId || !s3cfg?.secretAccessKey;
+  if (localStorage) {
+    // Capture the raw binary body for the upload sink, and serve stored files at /files/*.
+    app.use('/api/v1/uploads/local', raw({ type: () => true, limit: '64mb' }));
+    app.useStaticAssets(join(process.cwd(), 'storage'), { prefix: '/files/' });
+  }
 
   // --- Validation ---
   app.useGlobalPipes(

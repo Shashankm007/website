@@ -132,8 +132,11 @@ Generate secrets with `openssl rand -base64 48`.
 | `SHIPROCKET_PICKUP_LOCATION` | Pickup location nickname configured in Shiprocket |
 | `SHIPROCKET_CHANNEL_ID` | Shiprocket channel id (optional) |
 | `SHIPROCKET_WEBHOOK_TOKEN` | Shared secret for the Shiprocket tracking webhook (`x-api-key`) |
+| `CHATBOT_API_URL`, `CHATBOT_API_KEY`, `CHATBOT_MODEL` | **Chatbot LLM** — optional OpenAI-compatible endpoint for generative RAG (blank = extractive). See §Chatbot |
+| `CHATBOT_EMBED_URL`, `CHATBOT_EMBED_MODEL` | Optional embeddings endpoint for neural retrieval (blank = built-in BM25) |
 | `SMTP_*` | Transactional email (emails log to console when unset) |
-| `S3_*` | AWS S3 / Cloudflare R2 presigned uploads (optional) |
+| `S3_*` | AWS S3 / Cloudflare R2 presigned uploads. **Optional** — when `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` are unset the backend falls back to **local-disk storage** (see §File uploads) so uploads work with zero config in dev |
+| `STORAGE_PUBLIC_URL` | Base URL for local-disk files (optional; defaults to `http://localhost:<PORT>`). Only used by the local-disk fallback |
 | `GOOGLE_*` | Google OAuth (optional) |
 | `SEED_ADMIN_PASSWORD` | Admin password used by the seed (default `Admin123!`) |
 
@@ -144,6 +147,7 @@ Generate secrets with `openssl rand -base64 48`.
 | `API_INTERNAL_URL` | API base URL for server components (Docker network) |
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Razorpay key id (safe to expose) |
 | `NEXT_PUBLIC_SITE_URL` | Canonical site URL (metadata) |
+| `NEXT_PUBLIC_WHATSAPP_NUMBER` | WhatsApp click-to-chat number, digits only (default `917017109861`) |
 
 ### Razorpay setup (to take real payments)
 1. Create test API keys at **dashboard.razorpay.com → Settings → API Keys**.
@@ -197,6 +201,70 @@ Shiprocket then pushes status updates so the order status auto-syncs (e.g. **Shi
 If `SHIPROCKET_EMAIL` / `SHIPROCKET_PASSWORD` are unset, the **"Ship via Shiprocket"** action
 returns a friendly *"Shiprocket is not configured…"* message instead of failing — the rest of
 order management keeps working.
+
+---
+
+## Support chat (RAG chatbot) & WhatsApp
+
+The storefront has two floating buttons (bottom-right): a **WhatsApp** click-to-chat button and an
+AI **chat widget**. The chatbot is a **RAG** (Retrieval-Augmented Generation) assistant — it does
+**not** use hardcoded answers.
+
+### How the RAG bot works
+1. **Knowledge base** (`knowledge_chunks` table) = store policy docs (shipping, payments, returns,
+   GST, custom prints, lithophane, discounts, accounts, contact) **+ one auto-generated doc per
+   active product** (name, description, price, options, stock, category). It's rebuilt from your
+   live catalog.
+2. **Retrieval** finds the most relevant chunks for the question:
+   - **Default (offline):** a built-in **BM25** lexical ranker — strong and free, no external API.
+   - **Optional:** set `CHATBOT_EMBED_URL` (+ `CHATBOT_EMBED_MODEL`) to an OpenAI-compatible
+     embeddings endpoint for **neural vector retrieval**.
+3. **Answer:**
+   - **With an LLM** (`CHATBOT_API_URL`): an open-source model **generates** a reply grounded only
+     in the retrieved context (Ollama / Groq / Together / HuggingFace, etc.).
+   - **Without an LLM (default):** returns the best-matching retrieved snippet (extractive RAG).
+   - **No relevant match:** the bot says it isn't sure, points to WhatsApp, and flags the
+     conversation for a human (**needs reply**).
+4. Every conversation is **logged**; admins review them at **Admin → Support chat** (filter by
+   status / "needs human", reply, mark Handled/Closed).
+
+### Enable full generative RAG (open-source LLM)
+```bash
+# backend/.env  (example: local Ollama)
+CHATBOT_API_URL=http://localhost:11434/v1
+CHATBOT_MODEL=llama3.1
+# optional neural retrieval:
+CHATBOT_EMBED_URL=http://localhost:11434/v1
+CHATBOT_EMBED_MODEL=nomic-embed-text
+```
+Restart, then in **Admin → Support chat** click **"Reindex AI knowledge"** (or `POST
+/api/v1/admin/chat/reindex`). The KB also auto-indexes on first boot. Reindex after big catalog or
+policy changes so the bot stays current.
+
+### WhatsApp button
+Set `NEXT_PUBLIC_WHATSAPP_NUMBER` (digits only, e.g. `917017109861`). The button opens
+`https://wa.me/<number>?text=Hi`. Edit the knowledge text in `backend/src/chat/knowledge.data.ts`.
+
+---
+
+## File uploads (product images, videos & 3D models)
+
+Admins upload media from **Admin → Products → (a product) → Media** ("Upload images, videos
+& 3D models"). Customers upload custom STL/photos on customizable products. Uploads use a
+presign → direct-PUT flow, with two interchangeable storage drivers:
+
+- **Cloud (S3 / Cloudflare R2)** — used when `S3_ACCESS_KEY_ID` **and** `S3_SECRET_ACCESS_KEY`
+  are set. The browser PUTs straight to a presigned bucket URL. Also set `S3_BUCKET`,
+  `S3_REGION`, `S3_PUBLIC_URL` (and `S3_ENDPOINT` for R2/MinIO). Configure bucket CORS to allow
+  `PUT` from your site origin.
+- **Local disk (default dev fallback)** — used automatically when those creds are **unset**
+  (the backend logs a warning at startup). Files are written under `backend/storage/` and served
+  at `http://localhost:<PORT>/files/...`. Zero config, no Docker, no cloud account. Set
+  `STORAGE_PUBLIC_URL` if the API isn't reachable at `http://localhost:<PORT>` from the browser.
+  Not for production — use S3/R2 there.
+
+Supported 3D formats: **`.stl` / `.obj`**, rendered by the interactive viewer on the product
+page. `backend/storage/` is git-ignored.
 
 ---
 

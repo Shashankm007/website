@@ -12,6 +12,7 @@ import { sanitizePlain, sanitizeRichText } from '../common/utils/sanitize';
 import { slugify } from '../common/utils/slugify';
 import { CacheService } from '../redis/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { AddMediaDto } from './dto/add-media.dto';
 import { CreateProductDto, ProductMediaInputDto, ProductOptionInputDto } from './dto/create-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
@@ -20,6 +21,8 @@ import { UpdateProductDto } from './dto/update-product.dto';
 const LIST_TTL = 60; // seconds
 const DETAIL_TTL = 60; // seconds
 const CACHE_PREFIX = 'products';
+/** Max media rows fetched per card — enough to let the storefront cycle a few photos. */
+const CARD_MEDIA_TAKE = 6;
 
 /** Compact card shape returned by the catalog listing. */
 export interface ProductCard {
@@ -30,6 +33,7 @@ export interface ProductCard {
   price: string;
   compareAtCents: number | null;
   imageUrl: string | null;
+  images: string[];
   ratingAvg: number;
   ratingCount: number;
   fulfillment: FulfillmentType;
@@ -43,6 +47,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
+    private readonly uploads: UploadsService,
   ) {}
 
   // --- Public catalog ------------------------------------------------------
@@ -84,7 +89,7 @@ export class ProductsService {
         skip,
         take: limit,
         include: {
-          media: { orderBy: { position: 'asc' }, take: 1 },
+          media: { where: { type: MediaType.IMAGE }, orderBy: { position: 'asc' }, take: CARD_MEDIA_TAKE },
           inventory: true,
         },
       }),
@@ -173,6 +178,7 @@ export class ProductsService {
   private toCard(
     p: Prisma.ProductGetPayload<{ include: { media: true; inventory: true } }>,
   ): ProductCard {
+    const images = p.media.filter((m) => m.type === MediaType.IMAGE).map((m) => m.url);
     const image = p.media.find((m) => m.type === MediaType.IMAGE) ?? p.media[0];
     return {
       id: p.id,
@@ -182,6 +188,7 @@ export class ProductsService {
       price: formatMoney(p.priceCents, p.currency),
       compareAtCents: p.compareAtCents,
       imageUrl: image?.url ?? null,
+      images,
       ratingAvg: p.ratingAvg,
       ratingCount: p.ratingCount,
       fulfillment: p.fulfillment,
@@ -228,7 +235,10 @@ export class ProductsService {
           },
           orderBy: { salesCount: 'desc' },
           take: 4,
-          include: { media: { orderBy: { position: 'asc' }, take: 1 }, inventory: true },
+          include: {
+            media: { where: { type: MediaType.IMAGE }, orderBy: { position: 'asc' }, take: CARD_MEDIA_TAKE },
+            inventory: true,
+          },
         })
       : [];
 
@@ -271,6 +281,30 @@ export class ProductsService {
     };
   }
 
+  /** All tag names (for the admin tag picker). */
+  async listTags(): Promise<string[]> {
+    const tags = await this.prisma.tag.findMany({ orderBy: { name: 'asc' }, select: { name: true } });
+    return tags.map((t) => t.name);
+  }
+
+  /** All tags with product counts (for the admin tag manager). */
+  async listTagsAdmin(): Promise<{ id: string; name: string; slug: string; productCount: number }[]> {
+    const tags = await this.prisma.tag.findMany({
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { products: true } } },
+    });
+    return tags.map((t) => ({ id: t.id, name: t.name, slug: t.slug, productCount: t._count.products }));
+  }
+
+  /** Delete a tag; its product associations cascade away (ProductTag onDelete: Cascade). */
+  async deleteTag(id: string): Promise<{ id: string; name: string; slug: string }> {
+    const tag = await this.prisma.tag.findUnique({ where: { id } });
+    if (!tag) throw new NotFoundException('Tag not found');
+    await this.prisma.tag.delete({ where: { id } });
+    await this.invalidate();
+    return { id: tag.id, name: tag.name, slug: tag.slug };
+  }
+
   // --- Star products (landing-page carousel) -------------------------------
 
   private readonly STAR_KEY = 'star_products';
@@ -282,7 +316,10 @@ export class ProductsService {
     return Array.isArray(val) ? (val as unknown[]).filter((x): x is string => typeof x === 'string') : [];
   }
 
-  private cardInclude = { media: { orderBy: { position: 'asc' as const }, take: 1 }, inventory: true };
+  private cardInclude = {
+    media: { where: { type: MediaType.IMAGE }, orderBy: { position: 'asc' as const }, take: CARD_MEDIA_TAKE },
+    inventory: true,
+  };
 
   /** Public landing-page carousel: curated stars (ordered), else featured flag, else newest. */
   async findFeatured(): Promise<ProductCard[]> {
@@ -451,7 +488,7 @@ export class ProductsService {
     return this.findById(product.id);
   }
 
-  /** Patch a product. Scalar fields only; media/options/inventory are managed via dedicated endpoints. */
+  /** Patch a product. Replaces categories/tags/options/media when provided; inventory via dedicated endpoints. */
   async update(id: string, dto: UpdateProductDto) {
     const existing = await this.prisma.product.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Product not found');
@@ -475,6 +512,7 @@ export class ProductsService {
     if (dto.featured !== undefined) data.featured = dto.featured;
     if (dto.weightGrams !== undefined) data.weightGrams = dto.weightGrams ?? null;
 
+    let removedMediaKeys: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       await tx.product.update({ where: { id }, data });
 
@@ -499,8 +537,55 @@ export class ProductsService {
           }
         }
       }
+
+      // Replace options + values (incl. dimensions) when explicitly provided.
+      if (dto.options) {
+        await tx.productOption.deleteMany({ where: { productId: id } });
+        for (const opt of this.optionsCreateInput(dto.options)) {
+          await tx.productOption.create({ data: { ...opt, product: { connect: { id } } } });
+        }
+      }
+
+      // Replace media (images / video / 3D model) when explicitly provided.
+      // Skip when the set is unchanged (the form always resends media) and
+      // preserve existing alt text by URL, since the form doesn't round-trip it.
+      if (dto.media) {
+        const existing = await tx.productMedia.findMany({
+          where: { productId: id },
+          orderBy: { position: 'asc' },
+          select: { url: true, type: true, objectKey: true, position: true, alt: true },
+        });
+        const incoming = this.mediaCreateInput(dto.media);
+        const unchanged =
+          existing.length === incoming.length &&
+          incoming.every((m, i) => {
+            const e = existing[i];
+            return (
+              e &&
+              e.url === m.url &&
+              e.type === m.type &&
+              (e.objectKey ?? null) === (m.objectKey ?? null) &&
+              e.position === (m.position ?? 0)
+            );
+          });
+        if (!unchanged) {
+          const altByUrl = new Map(existing.map((m) => [m.url, m.alt]));
+          const incomingKeys = new Set(incoming.map((m) => m.objectKey).filter((k): k is string => Boolean(k)));
+          removedMediaKeys = existing
+            .map((e) => e.objectKey)
+            .filter((k): k is string => Boolean(k) && !incomingKeys.has(k as string));
+          await tx.productMedia.deleteMany({ where: { productId: id } });
+          if (incoming.length) {
+            await tx.productMedia.createMany({
+              data: incoming.map((m) => ({ ...m, alt: m.alt ?? altByUrl.get(m.url) ?? null, productId: id })),
+            });
+          }
+        }
+      }
     });
 
+    // Storage cleanup runs AFTER commit so a failed delete can't roll back the DB.
+    await this.deleteOrphanedObjects(removedMediaKeys);
     await this.invalidate();
     return this.findById(id);
   }
@@ -509,7 +594,13 @@ export class ProductsService {
   async remove(id: string) {
     const existing = await this.prisma.product.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Product not found');
+    const media = await this.prisma.productMedia.findMany({
+      where: { productId: id },
+      select: { objectKey: true },
+    });
     await this.prisma.product.delete({ where: { id } });
+    // Media rows cascade-deleted with the product; remove their stored objects.
+    await this.deleteOrphanedObjects(media.map((m) => m.objectKey));
     await this.invalidate();
     return { id };
   }
@@ -541,8 +632,36 @@ export class ProductsService {
     const media = await this.prisma.productMedia.findUnique({ where: { id: mediaId } });
     if (!media) throw new NotFoundException('Media not found');
     await this.prisma.productMedia.delete({ where: { id: mediaId } });
+    await this.deleteOrphanedObjects([media.objectKey]);
     await this.invalidate();
     return { id: mediaId };
+  }
+
+  /**
+   * Best-effort delete of stored objects (S3/R2 or local disk) for the given
+   * keys, skipping any key still referenced by a ProductMedia OR CustomUpload
+   * row. Best-effort and non-transactional: under concurrent edits a key could
+   * (rarely) be re-referenced between the check and the delete. Null/blank keys
+   * (pasted-URL media with no object key) are ignored.
+   */
+  private async deleteOrphanedObjects(keys: (string | null | undefined)[]): Promise<void> {
+    const unique = [...new Set(keys.filter((k): k is string => Boolean(k)))];
+    if (!unique.length) return;
+    const [inMedia, inUploads] = await Promise.all([
+      this.prisma.productMedia.findMany({
+        where: { objectKey: { in: unique } },
+        select: { objectKey: true },
+        distinct: ['objectKey'],
+      }),
+      this.prisma.customUpload.findMany({
+        where: { objectKey: { in: unique } },
+        select: { objectKey: true },
+        distinct: ['objectKey'],
+      }),
+    ]);
+    const stillUsed = new Set([...inMedia, ...inUploads].map((r) => r.objectKey));
+    const orphans = unique.filter((k) => !stillUsed.has(k));
+    await Promise.allSettled(orphans.map((k) => this.uploads.deleteObject(k)));
   }
 
   /**
@@ -612,6 +731,7 @@ export class ProductsService {
           value: sanitizePlain(v.value),
           priceDeltaCents: v.priceDeltaCents ?? 0,
           hex: v.hex ?? null,
+          dimension: sanitizePlain(v.dimension ?? '') || null,
           position: valIdx,
         })),
       },

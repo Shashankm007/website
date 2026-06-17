@@ -9,6 +9,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { AuthUser } from '../common/interfaces/jwt-payload.interface';
 import { ChatService } from './chat.service';
+import { KnowledgeService } from './knowledge.service';
 import { AdminChatQueryDto, AdminReplyDto, AdminUpdateChatDto, SendMessageDto } from './dto/chat.dto';
 
 @ApiTags('chat')
@@ -16,6 +17,7 @@ import { AdminChatQueryDto, AdminReplyDto, AdminUpdateChatDto, SendMessageDto } 
 export class ChatController {
   constructor(
     private readonly chat: ChatService,
+    private readonly knowledge: KnowledgeService,
     private readonly audit: AuditService,
   ) {}
 
@@ -25,6 +27,24 @@ export class ChatController {
   @Post('chat/message')
   send(@CurrentUser() user: AuthUser | undefined, @Body() dto: SendMessageDto) {
     return this.chat.sendMessage(user?.id, dto);
+  }
+
+  // --- Admin: knowledge base (RAG) -----------------------------------------
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Get('admin/chat/knowledge')
+  knowledgeStatus() {
+    return this.knowledge.count().then((count) => ({ count }));
+  }
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Post('admin/chat/reindex')
+  async reindex(@CurrentUser('id') actorId: string) {
+    const result = await this.knowledge.reindex();
+    await this.audit.log({ actorId, action: 'chat.knowledge.reindex', entity: 'KnowledgeChunk', metadata: result });
+    return result;
   }
 
   // --- Admin inbox ---------------------------------------------------------

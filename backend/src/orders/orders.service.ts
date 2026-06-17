@@ -44,6 +44,8 @@ interface CheckoutCartItem {
   unitPriceCents: number;
   optionsJson?: Prisma.JsonValue | null;
   customText?: string | null;
+  modelLink?: string | null;
+  customUploadUrl?: string | null;
 }
 
 /** Frozen address snapshot stored on the order. */
@@ -147,6 +149,8 @@ export class OrdersService {
               imageSnapshot: item.product.imageUrl ?? null,
               optionsJson: (item.optionsJson ?? undefined) as Prisma.InputJsonValue | undefined,
               customText: item.customText ?? null,
+              customUploadUrl: item.customUploadUrl ?? null,
+              modelLink: item.modelLink ?? null,
               quantity: item.quantity,
               unitPriceCents: item.unitPriceCents,
               totalCents: item.unitPriceCents * item.quantity,

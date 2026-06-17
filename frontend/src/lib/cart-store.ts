@@ -31,6 +31,7 @@ export interface AddItemInput {
   options?: Record<string, string>;
   customText?: string;
   customUploadId?: string;
+  modelLink?: string;
 }
 
 interface CartState {

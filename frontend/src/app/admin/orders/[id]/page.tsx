@@ -203,6 +203,26 @@ export default function AdminOrderDetailPage() {
                       </p>
                     )}
                     {item.customText && <p className="mt-0.5 text-xs italic text-slate-500">“{item.customText}”</p>}
+                    {item.modelLink && (
+                      <a
+                        href={item.modelLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" /> MakerWorld model
+                      </a>
+                    )}
+                    {item.customUploadUrl && (
+                      <a
+                        href={item.customUploadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
+                      >
+                        <Download className="h-3 w-3" /> Customer file
+                      </a>
+                    )}
                   </div>
                   <div className="text-right text-sm">
                     <p className="text-slate-500">

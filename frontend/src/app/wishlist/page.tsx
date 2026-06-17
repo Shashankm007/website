@@ -4,9 +4,9 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { Heart, Trash2 } from 'lucide-react';
 import type { ProductCard as ProductCardType } from '@/types';
-import { api } from '@/lib/client-api';
 import { ApiRequestError } from '@/lib/api';
 import { useApi } from '@/lib/use-api';
+import { useWishlist } from '@/lib/wishlist-store';
 import { RequireAuth } from '@/components/auth/RequireAuth';
 import { ProductCard } from '@/components/product/ProductCard';
 import { Button } from '@/components/ui/Button';
@@ -48,17 +48,19 @@ function toProductCard(entry: WishlistEntry): { productId: string; product: Prod
 
 function WishlistContent() {
   const { data, isLoading, mutate } = useApi<WishlistEntry[]>('/wishlist');
+  const removeFromStore = useWishlist((s) => s.remove);
 
   const items = (data ?? []).map(toProductCard).filter((x): x is { productId: string; product: ProductCardType } => x !== null);
 
   const remove = async (productId: string) => {
     try {
-      // Optimistically drop the item, then revalidate.
+      // Optimistically drop the item, then revalidate. The store performs the
+      // DELETE and keeps catalog hearts in sync.
       await mutate(
         (current) => (current ?? []).filter((e) => (e.productId ?? e.product?.id) !== productId),
         { revalidate: false },
       );
-      await api.del(`/wishlist/${productId}`);
+      await removeFromStore(productId);
       await mutate();
       toast.success('Removed from wishlist');
     } catch (err) {

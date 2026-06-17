@@ -3,12 +3,11 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Heart, Minus, Plus, ShoppingCart } from 'lucide-react';
+import { Heart, Minus, Plus, Ruler, ShoppingCart } from 'lucide-react';
 import type { CustomUpload, ProductDetail } from '@/types';
 import { useAuth } from '@/lib/auth-context';
 import { useCart } from '@/lib/cart-store';
-import { api } from '@/lib/client-api';
-import { ApiRequestError } from '@/lib/api';
+import { useWishlist } from '@/lib/wishlist-store';
 import { cn, formatMoney } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -17,6 +16,20 @@ import { Rating } from '@/components/ui/Rating';
 import { CustomerUpload } from './CustomerUpload';
 
 const MAX_QTY = 99;
+
+/** True for a well-formed MakerWorld model URL. */
+function isValidMakerworld(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    return host === 'makerworld.com' || host.endsWith('.makerworld.com');
+  } catch {
+    return false;
+  }
+}
 
 export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   const { user } = useAuth();
@@ -33,11 +46,18 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
   const [quantity, setQuantity] = useState(1);
   const [customText, setCustomText] = useState('');
   const [upload, setUpload] = useState<CustomUpload | null>(null);
+  const [modelLink, setModelLink] = useState('');
+  const [customMethod, setCustomMethod] = useState<'upload' | 'link'>('upload');
   const [adding, setAdding] = useState(false);
-  const [wishlisted, setWishlisted] = useState(false);
+  const wishlisted = useWishlist((s) => s.ids.includes(product.id));
+  const toggleWish = useWishlist((s) => s.toggle);
   const [wishlistBusy, setWishlistBusy] = useState(false);
 
   const needsUpload = product.customizationType !== 'NONE';
+  // STL custom prints can be provided as an upload OR a MakerWorld model link.
+  const isStl = product.customizationType === 'STL_UPLOAD';
+  const linkValid = isValidMakerworld(modelLink);
+  const customReady = !needsUpload || (isStl && customMethod === 'link' ? linkValid : !!upload);
 
   // Price = base + sum of selected option value deltas.
   const unitPriceCents = useMemo(() => {
@@ -67,10 +87,12 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
     return out;
   }, [product.options, selected]);
 
+  const usingLink = isStl && customMethod === 'link';
+
   const addToCart = async () => {
     if (soldOut) return;
-    if (needsUpload && !upload) {
-      toast.error('Please upload your file to continue.');
+    if (needsUpload && !customReady) {
+      toast.error(usingLink ? 'Please paste a valid MakerWorld model link.' : 'Please upload your file to continue.');
       return;
     }
     setAdding(true);
@@ -80,7 +102,8 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
         quantity,
         options: Object.keys(optionsPayload).length ? optionsPayload : undefined,
         customText: customText.trim() || undefined,
-        customUploadId: upload?.id,
+        customUploadId: usingLink ? undefined : upload?.id,
+        modelLink: usingLink ? modelLink.trim() : undefined,
       });
       toast.success(`Added ${product.name} to cart`);
     } catch (err) {
@@ -98,23 +121,12 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
       return;
     }
     setWishlistBusy(true);
-    const next = !wishlisted;
+    const wasWishlisted = wishlisted;
     try {
-      if (next) {
-        await api.post(`/wishlist/${product.id}`);
-        toast.success('Saved to your wishlist');
-      } else {
-        await api.del(`/wishlist/${product.id}`);
-        toast.success('Removed from your wishlist');
-      }
-      setWishlisted(next);
+      await toggleWish(product.id);
+      toast.success(wasWishlisted ? 'Removed from your wishlist' : 'Saved to your wishlist');
     } catch (err) {
-      // Treat "already in wishlist" as a no-op success.
-      if (err instanceof ApiRequestError && err.status === 409) {
-        setWishlisted(true);
-      } else {
-        toast.error(err instanceof Error ? err.message : 'Could not update wishlist');
-      }
+      toast.error(err instanceof Error ? err.message : 'Could not update wishlist');
     } finally {
       setWishlistBusy(false);
     }
@@ -157,14 +169,13 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
       {/* Options */}
       {product.options.map((opt) => {
         const isColor = opt.name.toLowerCase() === 'color';
+        const selectedVal = opt.values.find((v) => v.id === selected[opt.name]);
         return (
           <div key={opt.id} className="space-y-2">
             <p className="text-sm font-medium text-slate-700">
               {opt.name}
               {selected[opt.name] && (
-                <span className="ml-2 font-normal text-slate-500">
-                  {opt.values.find((v) => v.id === selected[opt.name])?.value}
-                </span>
+                <span className="ml-2 font-normal text-slate-500">{selectedVal?.value}</span>
               )}
             </p>
             <div className="flex flex-wrap gap-2">
@@ -208,6 +219,14 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
                 );
               })}
             </div>
+            {selectedVal?.dimension && (
+              <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                <Ruler className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                <span>
+                  <span className="font-medium text-slate-700">Dimensions:</span> {selectedVal.dimension}
+                </span>
+              </div>
+            )}
           </div>
         );
       })}
@@ -221,14 +240,58 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
         onChange={(e) => setCustomText(e.target.value)}
       />
 
-      {/* Customer file upload */}
-      {needsUpload && product.customizationType !== 'NONE' && (
+      {/* Customer customization: file upload (STL/photo) or a MakerWorld link */}
+      {needsUpload && (
         <div className="space-y-2">
           <p className="text-sm font-medium text-slate-700">
-            {product.customizationType === 'STL_UPLOAD' ? 'Upload your STL file' : 'Upload your photo'}
+            {isStl ? 'Your 3D model' : 'Upload your photo'}
             <span className="ml-1 text-rose-600">*</span>
           </p>
-          <CustomerUpload kind={product.customizationType} value={upload} onChange={setUpload} />
+
+          {isStl && (
+            <div className="inline-flex rounded-lg border border-slate-200 p-0.5 text-sm">
+              <button
+                type="button"
+                onClick={() => setCustomMethod('upload')}
+                className={cn(
+                  'rounded-md px-3 py-1.5 font-medium transition',
+                  customMethod === 'upload' ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900',
+                )}
+              >
+                Upload STL
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomMethod('link')}
+                className={cn(
+                  'rounded-md px-3 py-1.5 font-medium transition',
+                  customMethod === 'link' ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900',
+                )}
+              >
+                MakerWorld link
+              </button>
+            </div>
+          )}
+
+          {isStl && customMethod === 'link' ? (
+            <div className="space-y-1">
+              <Input
+                type="url"
+                inputMode="url"
+                placeholder="https://makerworld.com/en/models/…"
+                value={modelLink}
+                onChange={(e) => setModelLink(e.target.value)}
+                error={modelLink && !linkValid ? 'Enter a valid MakerWorld model link' : undefined}
+              />
+              <p className="text-xs text-slate-400">Paste a MakerWorld model link and we’ll print it for you.</p>
+            </div>
+          ) : (
+            <CustomerUpload
+              kind={product.customizationType as 'STL_UPLOAD' | 'PHOTO_UPLOAD'}
+              value={upload}
+              onChange={setUpload}
+            />
+          )}
         </div>
       )}
 
@@ -260,8 +323,10 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
         </div>
       </div>
 
-      {needsUpload && !upload && !soldOut && (
-        <p className="text-xs text-slate-500">Please upload your file to continue</p>
+      {needsUpload && !customReady && !soldOut && (
+        <p className="text-xs text-slate-500">
+          {usingLink ? 'Paste a MakerWorld model link to continue' : 'Please upload your file to continue'}
+        </p>
       )}
 
       {/* Actions */}
@@ -271,7 +336,7 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
           className="flex-1"
           onClick={addToCart}
           loading={adding}
-          disabled={soldOut || (needsUpload && !upload)}
+          disabled={soldOut || (needsUpload && !customReady)}
         >
           <ShoppingCart className="h-5 w-5" />
           {soldOut ? 'Out of stock' : 'Add to cart'}

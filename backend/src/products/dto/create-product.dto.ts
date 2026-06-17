@@ -63,6 +63,15 @@ export class ProductOptionValueInputDto {
   @IsString()
   @MaxLength(9)
   hex?: string;
+
+  @ApiPropertyOptional({
+    description: 'Human-readable physical size for this value',
+    example: '10 × 5 × 3 cm',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  dimension?: string;
 }
 
 /** A customization dimension (e.g. "Material", "Color"). */

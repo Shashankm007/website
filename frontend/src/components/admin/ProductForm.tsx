@@ -20,6 +20,7 @@ import { useApi } from '@/lib/use-api';
 import { ApiRequestError } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
+import { cn } from '@/lib/utils';
 import { MediaUploader, type MediaEntry } from './MediaUploader';
 
 /** Detail shape returned by GET /admin/products/:id, used to prefill the edit form. */
@@ -39,7 +40,10 @@ export interface ProductDetailLike {
   categories?: ({ id: string } | { category: { id: string } })[];
   tags?: (string | { name?: string; tag?: { name: string } })[];
   media?: { type: string; url: string; objectKey?: string | null }[];
-  options?: { name: string; values: { value: string; priceDeltaCents?: number; hex?: string | null }[] }[];
+  options?: {
+    name: string;
+    values: { value: string; priceDeltaCents?: number; hex?: string | null; dimension?: string | null }[];
+  }[];
   inventory?: { quantity?: number; lowStockThreshold?: number } | null;
 }
 
@@ -47,6 +51,7 @@ const optionValueSchema = z.object({
   value: z.string().trim().min(1, 'Required'),
   priceDelta: z.string().optional(),
   hex: z.string().optional(),
+  dimension: z.string().optional(),
 });
 const optionSchema = z.object({
   name: z.string().trim().min(1, 'Option name required'),
@@ -67,7 +72,7 @@ const schema = z
     featured: z.boolean(),
     weightGrams: z.string().optional(),
     categoryIds: z.array(z.string()),
-    tags: z.string().optional(),
+    tags: z.array(z.string()),
     initialStock: z.string().optional(),
     lowStockThreshold: z.string().optional(),
     options: z.array(optionSchema),
@@ -103,8 +108,7 @@ function buildDefaults(product?: ProductDetailLike, prefillMedia: MediaEntry[] =
   );
   const tags = (product?.tags ?? [])
     .map((t) => (typeof t === 'string' ? t : t.tag?.name ?? t.name ?? ''))
-    .filter(Boolean)
-    .join(', ');
+    .filter(Boolean);
   return {
     name: product?.name ?? '',
     description: product?.description ?? '',
@@ -127,6 +131,7 @@ function buildDefaults(product?: ProductDetailLike, prefillMedia: MediaEntry[] =
         value: v.value,
         priceDelta: centsToDollars(v.priceDeltaCents),
         hex: v.hex ?? '',
+        dimension: v.dimension ?? '',
       })),
     })),
   };
@@ -141,12 +146,18 @@ export function ProductForm({ product }: ProductFormProps) {
   const router = useRouter();
   const isEdit = !!product;
   const { data: categories } = useApi<Category[]>('/categories');
+  const { data: availableTags } = useApi<string[]>('/products/tags');
+  const [newTag, setNewTag] = useState('');
 
   const initialMedia: MediaEntry[] = useMemo(
     () =>
       (product?.media ?? [])
-        .filter((m) => m.type === 'IMAGE' || m.type === 'VIDEO')
-        .map((m) => ({ type: m.type as 'IMAGE' | 'VIDEO', url: m.url, objectKey: m.objectKey ?? undefined })),
+        .filter((m) => m.type === 'IMAGE' || m.type === 'VIDEO' || m.type === 'MODEL_3D')
+        .map((m) => ({
+          type: m.type as MediaEntry['type'],
+          url: m.url,
+          objectKey: m.objectKey ?? undefined,
+        })),
     [product],
   );
   const [media, setMedia] = useState<MediaEntry[]>(initialMedia);
@@ -190,6 +201,21 @@ export function ProductForm({ product }: ProductFormProps) {
   // Flatten the category tree for the multi-select.
   const flatCategories = useMemo(() => flatten(categories ?? []), [categories]);
 
+  const selectedTags = watch('tags');
+  const allTags = useMemo(
+    () => Array.from(new Set([...(availableTags ?? []), ...selectedTags])),
+    [availableTags, selectedTags],
+  );
+  const toggleTag = (t: string) =>
+    setValue('tags', selectedTags.includes(t) ? selectedTags.filter((x) => x !== t) : [...selectedTags, t], {
+      shouldDirty: true,
+    });
+  const addTag = () => {
+    const t = newTag.trim();
+    if (t && !selectedTags.includes(t)) setValue('tags', [...selectedTags, t], { shouldDirty: true });
+    setNewTag('');
+  };
+
   const onSubmit = handleSubmit(async (values) => {
     const payload = {
       name: values.name.trim(),
@@ -204,10 +230,7 @@ export function ProductForm({ product }: ProductFormProps) {
       featured: values.featured,
       weightGrams: intOrUndefined(values.weightGrams),
       categoryIds: values.categoryIds,
-      tags: (values.tags ?? '')
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean),
+      tags: values.tags,
       media: media.map((m, i) => ({ type: m.type, url: m.url, objectKey: m.objectKey, position: i })),
       options: values.options.map((o) => ({
         name: o.name.trim(),
@@ -215,6 +238,7 @@ export function ProductForm({ product }: ProductFormProps) {
           value: v.value.trim(),
           priceDeltaCents: dollarsToCents(v.priceDelta) ?? 0,
           hex: v.hex?.trim() || undefined,
+          dimension: v.dimension?.trim() || undefined,
         })),
       })),
       ...(values.fulfillment === 'STOCKED'
@@ -395,7 +419,53 @@ export function ProductForm({ product }: ProductFormProps) {
             </div>
           )}
         />
-        <Input label="Tags (comma-separated)" placeholder="dragon, articulated, fidget" {...register('tags')} />
+        <div>
+          <span className="label-base">Tags</span>
+          {availableTags === undefined ? (
+            <p className="text-sm text-slate-400">Loading tags…</p>
+          ) : allTags.length === 0 ? (
+            <p className="text-sm text-slate-400">No tags yet — add your first one below.</p>
+          ) : (
+            <div className="mb-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {allTags.map((t) => {
+                const checked = selectedTags.includes(t);
+                return (
+                  <label
+                    key={t}
+                    className={cn(
+                      'flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition',
+                      checked ? 'border-brand-300 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-600',
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-brand-600"
+                      checked={checked}
+                      onChange={() => toggleTag(t)}
+                    />
+                    {t}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            <Input
+              placeholder="Add a new tag"
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addTag();
+                }
+              }}
+            />
+            <Button type="button" variant="secondary" size="sm" onClick={addTag}>
+              Add tag
+            </Button>
+          </div>
+        </div>
       </section>
 
       {/* Media */}
@@ -408,7 +478,7 @@ export function ProductForm({ product }: ProductFormProps) {
       <section className="card space-y-4 p-6">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-900">Options</h2>
-          <Button type="button" variant="outline" size="sm" onClick={() => appendOption({ name: '', values: [{ value: '', priceDelta: '', hex: '' }] })}>
+          <Button type="button" variant="outline" size="sm" onClick={() => appendOption({ name: '', values: [{ value: '', priceDelta: '', hex: '', dimension: '' }] })}>
             <Plus className="h-4 w-4" />
             Add option
           </Button>
@@ -476,7 +546,7 @@ function OptionEditor({
       </div>
       <div className="mt-3 space-y-2">
         {fields.map((val, vi) => (
-          <div key={val.id} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr,140px,110px,auto]">
+          <div key={val.id} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_130px_160px_100px_auto]">
             <Input
               label={vi === 0 ? 'Value' : undefined}
               placeholder="PLA"
@@ -489,6 +559,11 @@ function OptionEditor({
               step="0.01"
               placeholder="0.00"
               {...register(`options.${index}.values.${vi}.priceDelta`)}
+            />
+            <Input
+              label={vi === 0 ? 'Dimensions' : undefined}
+              placeholder="10 × 5 × 3 cm"
+              {...register(`options.${index}.values.${vi}.dimension`)}
             />
             <Input
               label={vi === 0 ? 'Hex' : undefined}
@@ -510,7 +585,7 @@ function OptionEditor({
         {typeof optionErr?.values?.message === 'string' && (
           <p className="text-xs text-rose-600">{optionErr?.values?.message}</p>
         )}
-        <Button type="button" variant="ghost" size="sm" onClick={() => append({ value: '', priceDelta: '', hex: '' })}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => append({ value: '', priceDelta: '', hex: '', dimension: '' })}>
           <Plus className="h-3.5 w-3.5" />
           Add value
         </Button>

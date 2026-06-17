@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsObject, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsInt, IsObject, IsOptional, IsString, IsUrl, MaxLength, Min } from 'class-validator';
 
 /** Body for `POST /cart/items` — add (or accumulate) a line in the cart. */
 export class AddItemDto {
@@ -35,4 +35,13 @@ export class AddItemDto {
   @IsOptional()
   @IsString()
   customUploadId?: string;
+
+  @ApiPropertyOptional({
+    description: 'External 3D model link (e.g. MakerWorld) — alternative to uploading an STL',
+    example: 'https://makerworld.com/en/models/123456-cool-model',
+  })
+  @IsOptional()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
+  @MaxLength(2048)
+  modelLink?: string;
 }

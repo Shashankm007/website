@@ -108,6 +108,19 @@ export default function CartPage() {
                       </p>
                     )}
                     {item.customText && <p className="mt-0.5 text-sm italic text-slate-500">&ldquo;{item.customText}&rdquo;</p>}
+                    {item.modelLink && (
+                      <a
+                        href={item.modelLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-0.5 inline-block text-xs font-medium text-brand-600 hover:underline"
+                      >
+                        MakerWorld model ↗
+                      </a>
+                    )}
+                    {item.customUploadUrl && (
+                      <p className="mt-0.5 text-xs text-slate-500">Custom file attached</p>
+                    )}
                     {!item.inStock && <p className="mt-1 text-xs font-medium text-rose-600">Currently out of stock</p>}
                   </div>
                   <button

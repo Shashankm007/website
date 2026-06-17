@@ -208,6 +208,26 @@ export default function OrderDetailPage() {
                     {item.customText && (
                       <p className="mt-0.5 text-sm italic text-slate-500">&ldquo;{item.customText}&rdquo;</p>
                     )}
+                    {item.modelLink && (
+                      <a
+                        href={item.modelLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-0.5 inline-block text-sm font-medium text-brand-600 hover:underline"
+                      >
+                        MakerWorld model ↗
+                      </a>
+                    )}
+                    {item.customUploadUrl && (
+                      <a
+                        href={item.customUploadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-0.5 inline-block text-sm font-medium text-brand-600 hover:underline"
+                      >
+                        Your uploaded file ↗
+                      </a>
+                    )}
                     <p className="mt-1 text-sm text-slate-500">
                       {formatMoney(item.unitPriceCents, order.currency)} × {item.quantity}
                     </p>

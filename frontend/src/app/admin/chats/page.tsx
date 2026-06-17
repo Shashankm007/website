@@ -4,6 +4,7 @@ import { useState } from 'react';
 import {
   Bot,
   MessageSquare,
+  RefreshCw,
   Send,
   ShieldCheck,
   User as UserIcon,
@@ -51,6 +52,19 @@ export default function AdminChatsPage() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<ChatStatus | ''>('');
   const [needsHuman, setNeedsHuman] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
+
+  const reindexKnowledge = async () => {
+    setReindexing(true);
+    try {
+      const { data } = await api.post<{ indexed: number; mode: string }>('/admin/chat/reindex');
+      toast.success(`Knowledge base reindexed — ${data.indexed} chunks (${data.mode})`);
+    } catch (e) {
+      toast.error(e instanceof ApiRequestError ? e.message : 'Could not reindex');
+    } finally {
+      setReindexing(false);
+    }
+  };
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const query = qs({
@@ -71,6 +85,11 @@ export default function AdminChatsPage() {
         title="Support chat"
         description={
           total ? `${total} conversation${total === 1 ? '' : 's'}` : 'Read logged conversations and handle them'
+        }
+        action={
+          <Button variant="outline" onClick={reindexKnowledge} loading={reindexing} title="Rebuild the chatbot knowledge base from policies + current catalog">
+            <RefreshCw className="h-4 w-4" /> Reindex AI knowledge
+          </Button>
         }
       />
 

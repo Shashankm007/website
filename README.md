@@ -16,15 +16,16 @@ refresh tokens), RBAC, an admin dashboard, a 3D STL/OBJ viewer, and Docker deplo
 - Product detail with image gallery, **interactive 3D model preview (Three.js)**, customization options (size / material / color), custom engraving text, and reviews
 - Cart (guest + authenticated, auto-merged on login), wishlist
 - Multi-step checkout (shipping → payment → review) with **Razorpay** + webhooks
-- Order history, status timeline, downloadable PDF invoices
+- Order history, status timeline, downloadable PDF invoices, resume-payment on pending orders
+- Star-products **carousel** on the landing page, **RAG AI chat widget** + **WhatsApp** click-to-chat
 - Email verification, password reset, Google OAuth (optional), profile + address book
 
 **Admin**
 - Dashboard metrics (revenue, orders, customers, low stock) + analytics charts
-- Product / category / coupon CRUD, media uploads (presigned S3), CSV bulk import
-- Inventory management with ledger + low-stock alerts
+- Product / category / coupon CRUD, multi-image/video uploads (presigned S3), inline discounts, CSV bulk import
+- Curated **star products** (landing carousel), site **announcement banner**, inventory ledger + low-stock alerts
 - Order management (status updates, refunds), **Shiprocket** fulfilment (one-click ship → AWB + tracking link, status auto-synced via webhook), customer management (block / role)
-- Audit log of privileged actions
+- **Support chat inbox** (logged RAG-chatbot conversations, reindex KB), audit log of privileged actions
 
 **Engineering**
 - RBAC (Guest / Customer / Admin) enforced by global guards on every endpoint
@@ -41,6 +42,7 @@ refresh tokens), RBAC, an admin dashboard, a 3D STL/OBJ viewer, and Docker deplo
 |--------------|-----------|
 | Frontend     | Next.js 14, React 18, TypeScript, Tailwind CSS, Three.js (`@react-three/fiber`/`drei`), Razorpay, SWR, Zustand, Recharts |
 | Backend      | NestJS 10, TypeScript, Prisma ORM, Passport (JWT + Google), Razorpay, Shiprocket, Nodemailer, AWS SDK v3 |
+| AI chatbot   | RAG over a knowledge base — BM25 retrieval (offline) or neural embeddings + an open-source LLM (Ollama/Groq/…) via OpenAI-compatible API |
 | Database     | PostgreSQL 16 |
 | Cache/Queue  | Redis 7 (optional) |
 | Storage      | AWS S3 or Cloudflare R2 / MinIO (presigned uploads) |

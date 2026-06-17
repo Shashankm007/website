@@ -39,3 +39,6 @@ Thumbs.db
 # Misc
 *.tsbuildinfo
 .turbo/
+
+# Local-disk upload storage (dev fallback)
+backend/storage/

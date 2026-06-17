@@ -27,6 +27,8 @@ export interface CheckoutCart {
     unitPriceCents: number;
     optionsJson: Prisma.JsonValue | null;
     customText: string | null;
+    modelLink: string | null;
+    customUploadUrl: string | null;
   }[];
   subtotalCents: number;
 }
@@ -48,6 +50,7 @@ export class CartService {
     const cart = await this.resolveOrCreateCart(ctx);
     const product = await this.loadProduct(dto.productId);
     const customText = dto.customText ? sanitizePlain(dto.customText) : null;
+    const modelLink = this.normalizeModelLink(dto.modelLink);
     const options = this.normalizeOptions(dto.options);
 
     const unitPriceCents = await this.resolveUnitPrice(product, dto.variantId, options);
@@ -68,7 +71,14 @@ export class CartService {
     if (existing) {
       await this.prisma.cartItem.update({
         where: { id: existing.id },
-        data: { quantity: desiredQty, unitPriceCents, optionsJson: options ?? Prisma.JsonNull },
+        data: {
+          quantity: desiredQty,
+          unitPriceCents,
+          optionsJson: options ?? Prisma.JsonNull,
+          // Upload and link are mutually exclusive: a newly supplied method clears the other.
+          customUploadId: modelLink ? null : (dto.customUploadId ?? existing.customUploadId),
+          modelLink: dto.customUploadId ? null : (modelLink ?? existing.modelLink),
+        },
       });
     } else {
       await this.prisma.cartItem.create({
@@ -80,6 +90,7 @@ export class CartService {
           optionsJson: options ?? Prisma.JsonNull,
           customText,
           customUploadId: dto.customUploadId ?? null,
+          modelLink,
           unitPriceCents,
         },
       });
@@ -154,7 +165,13 @@ export class CartService {
         if (existing) {
           await tx.cartItem.update({
             where: { id: existing.id },
-            data: { quantity: existing.quantity + item.quantity, unitPriceCents: item.unitPriceCents },
+            data: {
+              quantity: existing.quantity + item.quantity,
+              unitPriceCents: item.unitPriceCents,
+              // Preserve the custom artifacts carried by the guest line.
+              customUploadId: item.customUploadId ?? existing.customUploadId,
+              modelLink: item.modelLink ?? existing.modelLink,
+            },
           });
         } else {
           await tx.cartItem.create({
@@ -166,6 +183,7 @@ export class CartService {
               optionsJson: item.optionsJson ?? Prisma.JsonNull,
               customText: item.customText,
               customUploadId: item.customUploadId,
+              modelLink: item.modelLink,
               unitPriceCents: item.unitPriceCents,
             },
           });
@@ -190,6 +208,7 @@ export class CartService {
       throw new BadRequestException('Your cart is empty');
     }
 
+    const uploadUrlById = await this.resolveUploadUrls(cart.items.map((i) => i.customUploadId));
     const items = cart.items.map((item) => ({
       product: item.product,
       variantId: item.variantId,
@@ -197,6 +216,8 @@ export class CartService {
       unitPriceCents: item.unitPriceCents,
       optionsJson: item.optionsJson,
       customText: item.customText,
+      modelLink: item.modelLink,
+      customUploadUrl: item.customUploadId ? (uploadUrlById.get(item.customUploadId) ?? null) : null,
     }));
     const subtotalCents = items.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0);
 
@@ -250,6 +271,39 @@ export class CartService {
       if (typeof value === 'string' && value.trim()) cleaned[key.trim()] = value.trim();
     }
     return Object.keys(cleaned).length ? cleaned : null;
+  }
+
+  /** Resolve customUpload URLs for a set of (possibly null) upload ids in one query. */
+  private async resolveUploadUrls(ids: (string | null)[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ids.filter((x): x is string => Boolean(x)))];
+    if (!unique.length) return new Map();
+    const rows = await this.prisma.customUpload.findMany({
+      where: { id: { in: unique } },
+      select: { id: true, url: true },
+    });
+    return new Map(rows.map((r) => [r.id, r.url]));
+  }
+
+  /** Validate + normalize an external model link. Only https MakerWorld URLs are accepted. */
+  private normalizeModelLink(url?: string | null): string | null {
+    const trimmed = url?.trim();
+    if (!trimmed) return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      throw new BadRequestException('Enter a valid model link URL');
+    }
+    // Enforce https at the producing layer so a stored link can never be a
+    // dangerous scheme (javascript:/data:) reaching an href, regardless of DTO.
+    if (parsed.protocol !== 'https:') {
+      throw new BadRequestException('Only secure (https) MakerWorld links are supported');
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (host !== 'makerworld.com' && !host.endsWith('.makerworld.com')) {
+      throw new BadRequestException('Only MakerWorld model links are supported');
+    }
+    return trimmed;
   }
 
   /**
@@ -317,6 +371,9 @@ export class CartService {
       orderBy: { createdAt: 'asc' },
     });
 
+    // customUploadId is a loose FK (no relation) — resolve the URLs in one query.
+    const uploadUrlById = await this.resolveUploadUrls(items.map((i) => i.customUploadId));
+
     const itemViews: CartItemView[] = items.map((item) => {
       const lineTotalCents = item.unitPriceCents * item.quantity;
       return {
@@ -328,6 +385,8 @@ export class CartService {
         variantId: item.variantId,
         options: (item.optionsJson as Record<string, string> | null) ?? {},
         customText: item.customText,
+        modelLink: item.modelLink,
+        customUploadUrl: item.customUploadId ? (uploadUrlById.get(item.customUploadId) ?? null) : null,
         quantity: item.quantity,
         unitPriceCents: item.unitPriceCents,
         lineTotalCents,

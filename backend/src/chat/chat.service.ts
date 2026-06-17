@@ -6,7 +6,13 @@ import { Paginated, paginate } from '../common/interfaces/api-response.interface
 import { sanitizePlain } from '../common/utils/sanitize';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminChatQueryDto, AdminReplyDto, AdminUpdateChatDto, SendMessageDto } from './dto/chat.dto';
-import { BotAnswer, CHATBOT_SYSTEM_PROMPT, faqAnswer } from './faq';
+import { CHATBOT_SYSTEM_PROMPT, SUPPORT_WHATSAPP } from './knowledge.data';
+import { KnowledgeService, RetrievedChunk } from './knowledge.service';
+
+interface BotAnswer {
+  reply: string;
+  needsHuman: boolean;
+}
 
 @Injectable()
 export class ChatService {
@@ -15,6 +21,7 @@ export class ChatService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly knowledge: KnowledgeService,
     config: ConfigService,
   ) {
     this.llm = config.get<AppConfig['chatbot']>('chatbot')!;
@@ -58,42 +65,73 @@ export class ChatService {
     return { conversationId: conversation.id, reply, needsHuman };
   }
 
-  /** FAQ engine by default; optional OpenAI-compatible LLM when configured (falls back to FAQ). */
+  /**
+   * RAG: retrieve relevant knowledge-base chunks, then answer from them — with an
+   * LLM (open-source, OpenAI-compatible) when configured, else extractively.
+   */
   private async generateReply(conversationId: string, message: string): Promise<BotAnswer> {
-    const heuristic = faqAnswer(message);
-    if (!this.llm.apiUrl) return heuristic;
+    let chunks: RetrievedChunk[] = [];
+    try {
+      chunks = await this.knowledge.search(message, 4); // already filtered to relevant + ranked
+    } catch (e) {
+      this.logger.error(`Knowledge retrieval failed: ${(e as Error).message}`);
+    }
 
+    if (chunks.length === 0) {
+      return {
+        reply: `I'm not sure about that one yet 🤔 — our team can help on WhatsApp at ${SUPPORT_WHATSAPP}. I've flagged this so someone can follow up.`,
+        needsHuman: true,
+      };
+    }
+
+    if (this.llm.apiUrl) {
+      const generated = await this.generateWithLlm(conversationId, chunks);
+      if (generated) return { reply: generated, needsHuman: false };
+    }
+
+    return { reply: this.extractiveAnswer(chunks), needsHuman: false };
+  }
+
+  /** Generative RAG via an OpenAI-compatible chat endpoint, grounded in retrieved context. */
+  private async generateWithLlm(conversationId: string, context: RetrievedChunk[]): Promise<string | null> {
     try {
       const history = await this.prisma.chatMessage.findMany({
         where: { conversationId },
         orderBy: { createdAt: 'asc' },
-        take: 12,
+        take: 10,
       });
+      const contextBlock = context.map((c, i) => `[${i + 1}] ${c.title}: ${c.content}`).join('\n');
       const messages = [
-        { role: 'system', content: CHATBOT_SYSTEM_PROMPT },
+        { role: 'system', content: `${CHATBOT_SYSTEM_PROMPT}\n\nContext:\n${contextBlock}` },
         ...history.map((h) => ({ role: h.role === ChatRole.USER ? 'user' : 'assistant', content: h.content })),
       ];
-      const res = await fetch(`${this.llm.apiUrl.replace(/\/$/, '')}/chat/completions`, {
+      const res = await fetch(`${this.llm.apiUrl!.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(this.llm.apiKey ? { Authorization: `Bearer ${this.llm.apiKey}` } : {}),
         },
-        body: JSON.stringify({
-          model: this.llm.model || 'gpt-3.5-turbo',
-          messages,
-          temperature: 0.3,
-          max_tokens: 220,
-        }),
+        body: JSON.stringify({ model: this.llm.model || 'gpt-3.5-turbo', messages, temperature: 0.2, max_tokens: 220 }),
       });
       const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
       const reply = data?.choices?.[0]?.message?.content?.trim();
-      if (res.ok && reply) return { reply, needsHuman: heuristic.needsHuman };
-      this.logger.warn(`LLM returned no reply (status ${res.status}); using FAQ fallback`);
+      if (res.ok && reply) return reply;
+      this.logger.warn(`LLM returned no reply (status ${res.status}); using extractive answer`);
     } catch (e) {
-      this.logger.warn(`LLM call failed, using FAQ fallback: ${(e as Error).message}`);
+      this.logger.warn(`LLM call failed, using extractive answer: ${(e as Error).message}`);
     }
-    return heuristic;
+    return null;
+  }
+
+  /** No-LLM answer: stitch together the most relevant retrieved snippet(s). */
+  private extractiveAnswer(chunks: RetrievedChunk[]): string {
+    const top = chunks[0];
+    let answer = top.content;
+    const second = chunks[1];
+    if (second && second.score >= top.score * 0.8 && second.title !== top.title) {
+      answer += ` ${second.content}`;
+    }
+    return answer.length > 700 ? `${answer.slice(0, 700).trim()}…` : answer;
   }
 
   // --- Admin inbox ---------------------------------------------------------

@@ -9,6 +9,7 @@ import { api } from '@/lib/client-api';
 import { ApiRequestError } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
+import { ImageUploadField } from '@/components/admin/ImageUploadField';
 
 const schema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(120),
@@ -32,6 +33,8 @@ export function CategoryForm({ category, parentOptions, onSaved, onCancel }: Cat
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -76,7 +79,11 @@ export function CategoryForm({ category, parentOptions, onSaved, onCancel }: Cat
           </option>
         ))}
       </Select>
-      <Input label="Image URL" placeholder="https://…/minis.jpg" error={errors.imageUrl?.message} {...register('imageUrl')} />
+      <ImageUploadField
+        label="Category tile image"
+        value={watch('imageUrl')}
+        onChange={(url) => setValue('imageUrl', url, { shouldDirty: true })}
+      />
       <Textarea label="Description" rows={3} placeholder="Optional description" {...register('description')} />
       <div className="flex items-center justify-end gap-3 pt-2">
         <Button type="button" variant="ghost" onClick={onCancel}>

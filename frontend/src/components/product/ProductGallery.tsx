@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
-import { Box, ImageOff, Play } from 'lucide-react';
+import { Box, ChevronLeft, ChevronRight, ImageOff, Play } from 'lucide-react';
 import type { MediaItem } from '@/types';
 import { cn } from '@/lib/utils';
 import { CenteredSpinner } from '@/components/ui/Feedback';
@@ -37,34 +37,82 @@ export function ProductGallery({ media, productName }: { media: MediaItem[]; pro
 
   const activeMedia = view.kind === 'media' ? visuals[view.index] : undefined;
 
+  // Cycle through the image/video visuals on the main stage.
+  const go = (delta: number) => {
+    if (!visuals.length) return;
+    setView((v) => {
+      const current = v.kind === 'media' ? v.index : 0;
+      return { kind: 'media', index: (current + delta + visuals.length) % visuals.length };
+    });
+  };
+
   return (
     <div className="space-y-3">
       {/* Main stage */}
       <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-        {view.kind === 'model' && model ? (
-          <ModelViewer url={model.url} />
-        ) : activeMedia ? (
-          activeMedia.type === 'VIDEO' ? (
-            <video
-              src={activeMedia.url}
-              controls
-              playsInline
-              className="absolute inset-0 h-full w-full bg-black object-contain"
-            />
-          ) : (
+        {/* Image visuals stacked as crossfade layers — all mounted so the
+            browser preloads them; switching just animates opacity. */}
+        {visuals.map((item, i) =>
+          item.type === 'IMAGE' ? (
             <Image
-              src={activeMedia.url}
-              alt={activeMedia.alt ?? productName}
+              key={item.id}
+              src={item.url}
+              alt={item.alt ?? productName}
               fill
-              priority
+              priority={i === 0}
               sizes="(max-width:1024px) 100vw, 50vw"
-              className="object-cover"
+              className={cn(
+                'object-cover transition-opacity duration-500',
+                view.kind === 'media' && view.index === i ? 'opacity-100' : 'opacity-0',
+              )}
             />
-          )
-        ) : (
+          ) : null,
+        )}
+
+        {/* Active video (rendered only while it's the selected visual) */}
+        {view.kind === 'media' && activeMedia?.type === 'VIDEO' && (
+          <video
+            key={activeMedia.id}
+            src={activeMedia.url}
+            controls
+            playsInline
+            className="absolute inset-0 h-full w-full bg-black object-contain"
+          />
+        )}
+
+        {/* 3D model */}
+        {view.kind === 'model' && model && <ModelViewer url={model.url} />}
+
+        {/* Empty state */}
+        {view.kind === 'media' && visuals.length === 0 && (
           <div className="flex h-full items-center justify-center text-slate-300">
             <ImageOff className="h-12 w-12" />
           </div>
+        )}
+
+        {/* Prev / next arrows for cycling photos */}
+        {view.kind === 'media' && visuals.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={() => go(-1)}
+              aria-label="Previous photo"
+              className="absolute left-2 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-card backdrop-blur transition hover:bg-white"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => go(1)}
+              aria-label="Next photo"
+              className="absolute right-2 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-card backdrop-blur transition hover:bg-white"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+            <span className="pointer-events-none absolute right-2 top-2 rounded-full bg-slate-900/60 px-2 py-0.5 text-xs font-medium text-white">
+              {view.index + 1}/{visuals.length}
+            </span>
+          </>
         )}
       </div>
 

@@ -3,16 +3,25 @@
 import { useRef, useState } from 'react';
 import Image from 'next/image';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowUp, ImagePlus, Link2, Loader2, Trash2, UploadCloud, Video } from 'lucide-react';
+import { ArrowDown, ArrowUp, Box, ImagePlus, Link2, Loader2, Trash2, UploadCloud, Video } from 'lucide-react';
 import { api } from '@/lib/client-api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
 /** A media entry collected by the uploader. Matches the product media input shape. */
 export interface MediaEntry {
-  type: 'IMAGE' | 'VIDEO';
+  type: 'IMAGE' | 'VIDEO' | 'MODEL_3D';
   url: string;
   objectKey?: string;
+}
+
+/** Renderable 3D model formats supported by the storefront viewer. */
+const MODEL_EXTS = ['.stl', '.obj'];
+
+/** True if a file name / URL points at a 3D model the viewer can render. */
+function isModelName(name: string): boolean {
+  const clean = name.split(/[?#]/)[0].toLowerCase();
+  return MODEL_EXTS.some((ext) => clean.endsWith(ext));
 }
 
 interface PresignResponse {
@@ -37,8 +46,9 @@ export function MediaUploader({ value, onChange }: MediaUploaderProps) {
   const [urlDraft, setUrlDraft] = useState('');
 
   const uploadOne = async (file: File): Promise<MediaEntry> => {
-    const isVideo = file.type.startsWith('video/');
-    const uploadKind = isVideo ? 'video' : 'image';
+    const isModel = isModelName(file.name);
+    const isVideo = !isModel && file.type.startsWith('video/');
+    const uploadKind = isModel ? 'model' : isVideo ? 'video' : 'image';
     const { data } = await api.post<PresignResponse>('/uploads/presign', {
       fileName: file.name,
       contentType: file.type || 'application/octet-stream',
@@ -51,14 +61,17 @@ export function MediaUploader({ value, onChange }: MediaUploaderProps) {
       headers: { 'Content-Type': file.type || 'application/octet-stream' },
     });
     if (!put.ok) throw new Error(`Upload failed for ${file.name}`);
-    return { type: isVideo ? 'VIDEO' : 'IMAGE', url: data.publicUrl, objectKey: data.objectKey };
+    const type: MediaEntry['type'] = isModel ? 'MODEL_3D' : isVideo ? 'VIDEO' : 'IMAGE';
+    return { type, url: data.publicUrl, objectKey: data.objectKey };
   };
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const media = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    const media = Array.from(files).filter(
+      (f) => f.type.startsWith('image/') || f.type.startsWith('video/') || isModelName(f.name),
+    );
     if (media.length === 0) {
-      toast.error('Please choose image or video files');
+      toast.error('Please choose image, video, or 3D model (.stl/.obj) files');
       return;
     }
     setUploading(true);
@@ -88,7 +101,8 @@ export function MediaUploader({ value, onChange }: MediaUploaderProps) {
       toast.error('That media is already added');
       return;
     }
-    onChange([...value, { type: 'IMAGE', url }]);
+    const type: MediaEntry['type'] = isModelName(url) ? 'MODEL_3D' : 'IMAGE';
+    onChange([...value, { type, url }]);
     setUrlDraft('');
   };
 
@@ -108,18 +122,18 @@ export function MediaUploader({ value, onChange }: MediaUploaderProps) {
         <input
           ref={fileInput}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,video/*,.stl,.obj,model/*"
           multiple
           className="hidden"
           onChange={(e) => handleFiles(e.target.files)}
         />
         <Button type="button" variant="outline" onClick={() => fileInput.current?.click()} disabled={uploading}>
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-          {uploading ? 'Uploading…' : 'Upload images & videos'}
+          {uploading ? 'Uploading…' : 'Upload images, videos & 3D models'}
         </Button>
         <div className="flex flex-1 items-end gap-2">
           <Input
-            placeholder="…or paste an image URL"
+            placeholder="…or paste an image / .stl URL"
             value={urlDraft}
             onChange={(e) => setUrlDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -139,14 +153,27 @@ export function MediaUploader({ value, onChange }: MediaUploaderProps) {
       {value.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-400">
           <ImagePlus className="mb-2 h-8 w-8" />
-          <p className="text-sm">No media yet. Upload images or videos, or paste a URL.</p>
+          <p className="text-sm">No media yet. Upload images, videos, or a 3D model (.stl/.obj), or paste a URL.</p>
         </div>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {value.map((m, i) => (
             <li key={`${m.url}-${i}`} className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white">
               <div className="relative aspect-square bg-slate-100">
-                {m.type === 'VIDEO' ? (
+                {m.type === 'MODEL_3D' ? (
+                  <>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-slate-400">
+                      <Box className="h-8 w-8" />
+                      <span className="px-2 text-center text-[10px] font-medium text-slate-500 line-clamp-1">
+                        {m.url.split('/').pop()?.split(/[?#]/)[0] ?? '3D model'}
+                      </span>
+                    </div>
+                    <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      <Box className="h-3 w-3" />
+                      3D
+                    </span>
+                  </>
+                ) : m.type === 'VIDEO' ? (
                   <>
                     <video
                       src={m.url}

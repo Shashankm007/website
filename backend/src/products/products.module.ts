@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { UploadsModule } from '../uploads/uploads.module';
 import { AdminProductsController } from './admin-products.controller';
+import { AdminTagsController } from './admin-tags.controller';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 
@@ -8,7 +10,8 @@ import { ProductsService } from './products.service';
  * bulk import. Exports ProductsService for cross-module use (orders, reviews).
  */
 @Module({
-  controllers: [ProductsController, AdminProductsController],
+  imports: [UploadsModule],
+  controllers: [ProductsController, AdminProductsController, AdminTagsController],
   providers: [ProductsService],
   exports: [ProductsService],
 })

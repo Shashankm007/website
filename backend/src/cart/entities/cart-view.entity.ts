@@ -29,6 +29,12 @@ export class CartItemView {
   @ApiPropertyOptional({ nullable: true })
   customText!: string | null;
 
+  @ApiPropertyOptional({ nullable: true, description: 'External 3D model link (e.g. MakerWorld).' })
+  modelLink!: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: "URL of the customer's uploaded custom file." })
+  customUploadUrl!: string | null;
+
   @ApiProperty()
   quantity!: number;
 

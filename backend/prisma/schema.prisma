@@ -345,6 +345,7 @@ model ProductOptionValue {
   value        String // e.g. "PLA", "Red", "Large"
   priceDeltaCents Int        @default(0) // upcharge for this value
   hex          String? // for color swatches
+  dimension    String? // human-readable physical size for this value, e.g. "10 × 5 × 3 cm"
   position     Int           @default(0)
 
   @@unique([optionId, value])
@@ -431,6 +432,7 @@ model CartItem {
   optionsJson  Json?
   customText   String? // engraving
   customUploadId String?
+  modelLink    String? // external model URL (e.g. MakerWorld) — alternative to uploading an STL
   unitPriceCents Int // resolved unit price at time of add
 
   createdAt DateTime @default(now())
@@ -543,6 +545,8 @@ model OrderItem {
   imageSnapshot String?
   optionsJson  Json?
   customText   String?
+  customUploadUrl String? // snapshot of the customer's uploaded custom file (STL/photo)
+  modelLink    String?    // snapshot of the external model link (e.g. MakerWorld)
   quantity     Int
   unitPriceCents Int
   totalCents     Int
