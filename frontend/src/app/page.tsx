@@ -12,7 +12,7 @@ import { CustomPrintPromo } from '@/components/home/CustomPrintPromo';
 import { ValueProps } from '@/components/home/ValueProps';
 
 export const metadata: Metadata = {
-  title: 'Premium & Custom 3D-Printed Products',
+  // Title intentionally omitted so the tab uses the static root title.
   description:
     'HashTag Creations crafts premium 3D-printed home decor, desk accessories, and toys — or upload your own STL for fully custom, made-to-order prints. Free shipping over ₹999.',
   alternates: { canonical: '/' },

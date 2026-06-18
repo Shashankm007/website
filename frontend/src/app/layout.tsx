@@ -13,9 +13,11 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
+  // Static tab title on every page: `template` has no %s, so any per-page
+  // title still resolves to the brand name.
   title: {
-    default: 'HashTag Creations — Custom 3D Printed Products',
-    template: '%s · HashTag Creations',
+    default: 'HashTag Creations',
+    template: 'HashTag Creations',
   },
   description:
     'Shop premium 3D-printed home decor, desk accessories, toys, and fully custom prints. Upload your own STL for made-to-order printing.',
