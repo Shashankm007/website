@@ -1,0 +1,62 @@
+# ============================================================================
+# Root environment — consumed by docker-compose.yml
+# Copy to `.env` and fill in. NEVER commit the real .env.
+# Per-app guides live in backend/.env.example and frontend/.env.example.
+# ============================================================================
+
+# --- Postgres ---------------------------------------------------------------
+POSTGRES_USER=forge3d
+POSTGRES_PASSWORD=change-me-strong-password
+POSTGRES_DB=forge3d
+
+# --- Redis ------------------------------------------------------------------
+REDIS_PASSWORD=change-me-redis
+
+# --- Backend ----------------------------------------------------------------
+# Composed from the Postgres + Redis settings above when running via compose.
+DATABASE_URL=postgresql://forge3d:change-me-strong-password@postgres:5432/forge3d?schema=public
+REDIS_URL=redis://:change-me-redis@redis:6379
+
+NODE_ENV=production
+BACKEND_PORT=4000
+FRONTEND_URL=http://localhost:3000
+
+# JWT secrets — generate with: openssl rand -base64 48
+JWT_ACCESS_SECRET=replace-with-long-random-string
+JWT_REFRESH_SECRET=replace-with-different-long-random-string
+JWT_ACCESS_TTL=900s
+JWT_REFRESH_TTL=7d
+
+# Cookie / crypto
+COOKIE_SECRET=replace-with-long-random-string
+ENCRYPTION_KEY=replace-with-32-byte-base64-key   # openssl rand -base64 32
+
+# --- Razorpay ---------------------------------------------------------------
+RAZORPAY_KEY_ID=rzp_test_xxx
+RAZORPAY_KEY_SECRET=change-me-razorpay-secret
+RAZORPAY_WEBHOOK_SECRET=change-me-razorpay-webhook-secret
+
+# --- Email (SMTP) -----------------------------------------------------------
+SMTP_HOST=smtp.mailtrap.io
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM="HashTag Creations <no-reply@hashtagcreations.in>"
+
+# --- AWS S3 / Cloudflare R2 -------------------------------------------------
+S3_ENDPOINT=                       # leave blank for AWS, set for R2/minio
+S3_REGION=us-east-1
+S3_BUCKET=forge3d-assets
+S3_ACCESS_KEY_ID=
+S3_SECRET_ACCESS_KEY=
+S3_PUBLIC_URL=https://assets.hashtagcreations.in   # CDN/public base for objects
+
+# --- OAuth (optional) -------------------------------------------------------
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_CALLBACK_URL=http://localhost:4000/api/v1/auth/google/callback
+
+# --- Frontend (build-time, must be NEXT_PUBLIC_) ----------------------------
+NEXT_PUBLIC_API_URL=http://localhost:4000
+NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_test_xxx
+NEXT_PUBLIC_SITE_URL=http://localhost:3000

@@ -1,5 +1,5 @@
 {
-  "name": "forge3d",
+  "name": "hashtagCreations",
   "version": "1.0.0",
   "private": true,
   "description": "HashTag Creations — root task runner for the backend (NestJS) + frontend (Next.js)",
