@@ -135,6 +135,17 @@ function CheckoutFlow() {
     setPlacing(true);
     try {
       const { data: createdOrder } = await api.post<Order>('/orders', body);
+      // Initiate Shiprocket-hosted checkout session and redirect URL
+      const { data: resp } = await api.post<{ redirectUrl: string }>('/checkout/initiate', {
+        orderId: createdOrder.id,
+        returnUrl: `/checkout/success?order=${encodeURIComponent(createdOrder.orderNumber)}`,
+      });
+      if (resp?.redirectUrl) {
+        // Redirect the browser to Shiprocket hosted checkout
+        window.location.href = resp.redirectUrl;
+        return;
+      }
+      // Fallback: proceed to payment step (legacy Razorpay flow)
       const { data: rzp } = await api.post<CreateRazorpayOrderResponse>('/payments/create-order', {
         orderId: createdOrder.id,
       });

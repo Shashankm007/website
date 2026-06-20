@@ -47,6 +47,39 @@ export class ShiprocketService {
     this.cfg = config.get<AppConfig['shiprocket']>('shiprocket')!;
   }
 
+  /**
+   * Create a hosted checkout session (if supported by Shiprocket) and return a redirect URL.
+   * Falls back to creating an adhoc order and constructing a URL from `checkoutUrl` config.
+   */
+  async createHostedCheckout(input: ShiprocketOrderInput, returnUrl: string): Promise<string> {
+    this.assertConfigured();
+    // Try a direct Shiprocket hosted checkout API if available
+    try {
+      const r = await fetch(`${BASE}/orders/create/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const json = (await r.json().catch(() => ({}))) as Record<string, any>;
+      if (r.ok && json.checkout_url) return String(json.checkout_url);
+    } catch (e) {
+      this.logger.debug(`Hosted checkout endpoint not available or failed: ${(e as Error).message}`);
+    }
+
+    // Fallback: create a Shiprocket adhoc order and use an externally configured checkout URL
+    const created = await this.createOrder(input);
+    const checkoutBase = this.cfg.checkoutUrl as unknown as string | undefined;
+    if (!checkoutBase) {
+      // No hosted checkout available — return a simple instruction URL (or throw)
+      throw new Error('Shiprocket hosted checkout is not available and no fallback checkout URL is configured.');
+    }
+    const url = new URL(checkoutBase);
+    url.searchParams.set('order_id', created.shiprocketOrderId);
+    url.searchParams.set('shipment_id', created.shipmentId);
+    url.searchParams.set('return_url', returnUrl);
+    return url.toString();
+  }
+
   isConfigured(): boolean {
     return Boolean(this.cfg.email && this.cfg.password);
   }

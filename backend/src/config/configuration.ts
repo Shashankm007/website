@@ -103,6 +103,7 @@ export default (): AppConfig => ({
     pickupLocation: process.env.SHIPROCKET_PICKUP_LOCATION,
     channelId: process.env.SHIPROCKET_CHANNEL_ID,
     webhookToken: process.env.SHIPROCKET_WEBHOOK_TOKEN,
+    checkoutUrl: process.env.SHIPROCKET_CHECKOUT_URL,
   },
   chatbot: {
     apiUrl: process.env.CHATBOT_API_URL,
