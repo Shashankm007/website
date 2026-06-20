@@ -307,13 +307,14 @@ async function main() {
   // --- Coupon --------------------------------------------------------------
   await prisma.coupon.upsert({
     where: { code: 'WELCOME10' },
-    update: {},
+    update: { perUserLimit: 1 },
     create: {
       code: 'WELCOME10',
       description: '10% off your first order',
       type: DiscountType.PERCENTAGE,
       value: 10,
       minSubtotalCents: 50000,
+      perUserLimit: 1, // one use per account
       active: true,
     },
   });

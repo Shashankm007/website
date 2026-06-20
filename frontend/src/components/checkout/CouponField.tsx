@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Check, Tag, X } from 'lucide-react';
-import type { Coupon } from '@/types';
 import { api } from '@/lib/client-api';
 import { ApiRequestError } from '@/lib/api';
 import { formatMoney } from '@/lib/utils';
@@ -12,7 +11,6 @@ import { Input } from '@/components/ui/Input';
 
 export interface AppliedCoupon {
   code: string;
-  coupon: Coupon;
   discountCents: number;
 }
 
@@ -41,11 +39,11 @@ export function CouponField({
     if (!trimmed || loading) return;
     setLoading(true);
     try {
-      const { data } = await api.post<{ coupon: Coupon; discountCents: number }>('/coupons/validate', {
+      const { data } = await api.post<{ code: string; discountCents: number }>('/coupons/validate', {
         code: trimmed,
         subtotalCents,
       });
-      onApply({ code: data.coupon.code, coupon: data.coupon, discountCents: data.discountCents });
+      onApply({ code: data.code, discountCents: data.discountCents });
       toast.success(`Coupon applied — you save ${formatMoney(data.discountCents)}`);
       setCode('');
     } catch (err) {

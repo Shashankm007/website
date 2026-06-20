@@ -33,7 +33,7 @@ const schema = z.object({
   value: z.coerce.number({ invalid_type_error: 'Enter a value' }).min(0, 'Must be ≥ 0'),
   minSubtotal: z.string().optional(),
   maxRedemptions: z.string().optional(),
-  perUserLimit: z.string().optional(),
+  oncePerCustomer: z.boolean(),
   startsAt: z.string().optional(),
   expiresAt: z.string().optional(),
   active: z.boolean(),
@@ -76,7 +76,7 @@ export function CouponForm({ coupon, onSaved, onCancel }: CouponFormProps) {
       value: coupon ? (coupon.type === 'FIXED' ? coupon.value / 100 : coupon.value) : 0,
       minSubtotal: coupon?.minSubtotalCents != null ? (coupon.minSubtotalCents / 100).toFixed(2) : '',
       maxRedemptions: coupon?.maxRedemptions != null ? String(coupon.maxRedemptions) : '',
-      perUserLimit: coupon?.perUserLimit != null ? String(coupon.perUserLimit) : '',
+      oncePerCustomer: coupon?.perUserLimit === 1,
       startsAt: toDatetimeLocal(coupon?.startsAt),
       expiresAt: toDatetimeLocal(coupon?.expiresAt),
       active: coupon?.active ?? true,
@@ -95,7 +95,8 @@ export function CouponForm({ coupon, onSaved, onCancel }: CouponFormProps) {
       minSubtotalCents:
         values.minSubtotal && values.minSubtotal.trim() !== '' ? Math.round(Number(values.minSubtotal) * 100) : undefined,
       maxRedemptions: intOrUndefined(values.maxRedemptions),
-      perUserLimit: intOrUndefined(values.perUserLimit),
+      // "One use per customer" maps to a per-user redemption limit of 1 (null clears it).
+      perUserLimit: values.oncePerCustomer ? 1 : null,
       startsAt: values.startsAt ? new Date(values.startsAt).toISOString() : undefined,
       expiresAt: values.expiresAt ? new Date(values.expiresAt).toISOString() : undefined,
       active: values.active,
@@ -132,11 +133,14 @@ export function CouponForm({ coupon, onSaved, onCancel }: CouponFormProps) {
         />
         <Input label="Minimum subtotal (₹)" type="number" step="0.01" min={0} placeholder="0.00" {...register('minSubtotal')} />
         <Input label="Max redemptions" type="number" min={1} placeholder="Unlimited" {...register('maxRedemptions')} />
-        <Input label="Per-user limit" type="number" min={1} placeholder="Unlimited" {...register('perUserLimit')} />
         <Input label="Starts at" type="datetime-local" {...register('startsAt')} />
         <Input label="Expires at" type="datetime-local" {...register('expiresAt')} />
       </div>
       <Input label="Description" placeholder="20% off summer collection" {...register('description')} />
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600" {...register('oncePerCustomer')} />
+        One use per customer <span className="text-slate-400">(e.g. a welcome offer like WELCOME10)</span>
+      </label>
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600" {...register('active')} />
         Active
