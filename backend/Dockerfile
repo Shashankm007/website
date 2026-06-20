@@ -33,7 +33,9 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY package.json ./
 COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh \
+# Ensure entrypoint has UNIX line endings and is executable (fixes CRLF issues)
+RUN sed -i 's/\r$//' docker-entrypoint.sh \
+  && chmod +x docker-entrypoint.sh \
   && addgroup -S nodejs && adduser -S nestjs -G nodejs \
   && chown -R nestjs:nodejs /app
 USER nestjs
