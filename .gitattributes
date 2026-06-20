@@ -1,0 +1,7 @@
+# Normalize line endings: store as LF in the repo, native on checkout.
+* text=auto
+
+# Shell scripts MUST stay LF — they run inside Linux containers, where a CRLF
+# shebang breaks `exec` ("no such file or directory"). Keep LF on every OS.
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf

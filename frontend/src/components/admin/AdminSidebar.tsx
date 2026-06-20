@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   BarChart3,
-  Boxes,
   FolderTree,
   LayoutDashboard,
   Megaphone,
@@ -81,7 +80,8 @@ export function AdminSidebar({ open = false, onNavigate }: { open?: boolean; onN
       <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white lg:block">
         <div className="sticky top-0 flex h-screen flex-col">
           <Link href="/admin" className="flex items-center gap-2 px-5 py-5 font-bold text-slate-900">
-            <Boxes className="h-6 w-6 text-brand-600" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-mark.svg" alt="HashTag Creations" className="h-7 w-7" />
             <span className="text-lg">HashTag Creations</span>
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Admin
@@ -110,7 +110,8 @@ export function AdminSidebar({ open = false, onNavigate }: { open?: boolean; onN
           )}
         >
           <Link href="/admin" onClick={onNavigate} className="flex items-center gap-2 px-5 py-5 font-bold text-slate-900">
-            <Boxes className="h-6 w-6 text-brand-600" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-mark.svg" alt="HashTag Creations" className="h-7 w-7" />
             <span className="text-lg">HashTag Creations</span>
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Admin

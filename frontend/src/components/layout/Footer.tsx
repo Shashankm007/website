@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { Boxes } from 'lucide-react';
 
 const columns = [
   {
@@ -37,7 +36,8 @@ export function Footer() {
       <div className="container grid gap-8 py-12 sm:grid-cols-2 md:grid-cols-4">
         <div>
           <Link href="/" className="flex items-center gap-2 font-bold text-slate-900">
-            <Boxes className="h-6 w-6 text-brand-600" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-mark.svg" alt="HashTag Creations" className="h-7 w-7" />
             HashTag Creations
           </Link>
           <p className="mt-3 text-sm text-slate-500">

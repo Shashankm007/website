@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Boxes, Heart, LayoutDashboard, LogOut, Menu, Search, ShoppingCart, User as UserIcon, X } from 'lucide-react';
+import { Heart, LayoutDashboard, LogOut, Menu, Search, ShoppingCart, User as UserIcon, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useCart } from '@/lib/cart-store';
 import { cn } from '@/lib/utils';
@@ -32,7 +32,8 @@ export function Navbar() {
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="container flex h-16 items-center gap-4">
         <Link href="/" className="flex items-center gap-2 font-bold text-slate-900">
-          <Boxes className="h-6 w-6 text-brand-600" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-mark.svg" alt="HashTag Creations" className="h-8 w-8" />
           <span className="text-lg">HashTag Creations</span>
         </Link>
 
