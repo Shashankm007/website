@@ -1,5 +1,5 @@
 {
-  "name": "forge3d-backend",
+  "name": "hashtagCreations-backend",
   "version": "1.0.0",
   "description": "HashTag Creations — NestJS REST API for the 3D-printed products store",
   "license": "MIT",

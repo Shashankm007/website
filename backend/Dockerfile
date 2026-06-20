@@ -20,6 +20,7 @@ FROM node:20-alpine AS prod-deps
 WORKDIR /app
 RUN apk add --no-cache openssl
 COPY package.json package-lock.json* ./
+COPY --from=build /app/prisma ./prisma
 RUN npm ci --omit=dev && npx prisma generate
 
 # 4) Runner
