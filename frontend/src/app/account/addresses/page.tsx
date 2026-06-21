@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -200,6 +200,8 @@ function AddressFormDialog({
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<AddressForm>({
     resolver: zodResolver(addressSchema),
@@ -227,6 +229,47 @@ function AddressFormDialog({
       document.body.style.overflow = original;
     };
   }, []);
+
+  // Auto-fill city + state from an Indian PIN code via India Post's public API.
+  const postalCode = watch('postalCode');
+  const [pinStatus, setPinStatus] = useState<'idle' | 'loading' | 'error' | 'ok'>('idle');
+  const lastLookup = useRef<string>(address?.postalCode ?? '');
+
+  useEffect(() => {
+    const pin = (postalCode ?? '').trim();
+    if (!/^[1-9][0-9]{5}$/.test(pin)) {
+      setPinStatus('idle');
+      return;
+    }
+    if (lastLookup.current === pin) return;
+    lastLookup.current = pin;
+
+    let cancelled = false;
+    setPinStatus('loading');
+    (async () => {
+      try {
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+        const json = (await res.json()) as Array<{
+          Status?: string;
+          PostOffice?: Array<{ District?: string; State?: string }> | null;
+        }>;
+        const po = json?.[0]?.Status === 'Success' ? json[0].PostOffice?.[0] : null;
+        if (cancelled) return;
+        if (!po) {
+          setPinStatus('error');
+          return;
+        }
+        if (po.District) setValue('city', po.District, { shouldValidate: true, shouldDirty: true });
+        if (po.State) setValue('state', po.State, { shouldValidate: true, shouldDirty: true });
+        setPinStatus('ok');
+      } catch {
+        if (!cancelled) setPinStatus('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [postalCode, setValue]);
 
   const onSubmit = handleSubmit(async (values) => {
     const payload = {
@@ -293,7 +336,14 @@ function AddressFormDialog({
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Input label="Postal code" error={errors.postalCode?.message} {...register('postalCode')} />
+            <div>
+              <Input label="Postal code" error={errors.postalCode?.message} {...register('postalCode')} />
+              {pinStatus === 'loading' && <p className="mt-1 text-xs text-slate-400">Looking up city &amp; state…</p>}
+              {pinStatus === 'ok' && <p className="mt-1 text-xs text-emerald-600">City &amp; state filled from PIN.</p>}
+              {pinStatus === 'error' && (
+                <p className="mt-1 text-xs text-amber-600">Couldn’t find that PIN — enter manually.</p>
+              )}
+            </div>
             <Input label="Country" error={errors.country?.message} {...register('country')} />
           </div>
 
