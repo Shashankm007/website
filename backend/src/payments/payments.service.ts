@@ -102,6 +102,7 @@ export class PaymentsService {
    * key secret) and settles the order. The webhook remains the authoritative path.
    */
   async verifyCheckout(userId: string, dto: VerifyPaymentDto) {
+    this.logger.debug(`verifyCheckout invoked user=${userId} order=${dto.orderId} payment=${dto.razorpayPaymentId ?? 'N/A'}`);
     const order = await this.prisma.order.findUnique({ where: { id: dto.orderId } });
     if (!order) throw new NotFoundException('Order not found');
     if (order.userId !== userId) throw new ForbiddenException('You do not own this order');

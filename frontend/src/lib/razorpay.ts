@@ -68,9 +68,48 @@ export async function openRazorpayCheckout(options: OpenCheckoutOptions): Promis
       handler: (resp: RazorpayHandlerResponse) => resolve(resp),
       modal: { ondismiss: () => reject(new Error('Payment cancelled')) },
     });
+    let settled = false;
+    const forceClose = () => {
+      try {
+        if (typeof (rzp as any).close === 'function') (rzp as any).close();
+      } catch (e) {
+        // Fallback: remove any Razorpay iframe(s) from the DOM
+        try {
+          const iframes = Array.from(document.getElementsByTagName('iframe')) as HTMLIFrameElement[];
+          for (const f of iframes) {
+            const src = f.src || '';
+            if (src.includes('checkout.razorpay.com') || src.includes('razorpay.com')) f.remove();
+          }
+          // remove any overlays that Razorpay may have added
+          const overlays = Array.from(document.querySelectorAll('[id^="razorpay-"]'));
+          overlays.forEach((el) => el.remove());
+        } catch {}
+      }
+    };
+
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      forceClose();
+      fn();
+    };
+
     rzp.on('payment.failed', (resp: { error?: { description?: string } }) =>
-      reject(new Error(resp?.error?.description ?? 'Payment failed')),
+      settle(() => reject(new Error(resp?.error?.description ?? 'Payment failed'))),
     );
+
+    // Safety timeout: if user/checkout hangs, close modal and reject after 60s
+    const timeout = setTimeout(() => settle(() => reject(new Error('Payment timeout'))), 60000);
+
+    const cleanup = () => clearTimeout(timeout);
+    // Wrap resolve/reject to cleanup timer
+    const origResolve = resolve;
+    const origReject = reject;
+    // override via rzp handler by wrapping
+    (rzp as any).handler = (resp: RazorpayHandlerResponse) => {
+      cleanup();
+      settle(() => origResolve(resp));
+    };
     rzp.open();
   });
 }

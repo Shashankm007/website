@@ -60,13 +60,51 @@ export function RazorpayCheckout({
         notes: { orderNumber: order.orderNumber },
       });
 
-      // Verify server-side before treating the order as paid.
-      await api.post('/payments/verify', {
+      // Verify server-side and create Shiprocket shipment before treating the order as paid.
+      // If the confirm request fails (network/timeout/shiprocket), retry a few times
+      // then poll the order status until it's PAID so the SPA can show success.
+      const confirmBody = {
         orderId: order.id,
         razorpayOrderId: resp.razorpay_order_id,
         razorpayPaymentId: resp.razorpay_payment_id,
         razorpaySignature: resp.razorpay_signature,
-      });
+      };
+
+      const maxAttempts = 3;
+      let attempt = 0;
+      let confirmed = false;
+      while (attempt < maxAttempts && !confirmed) {
+        attempt += 1;
+        try {
+          await api.post('/checkout/confirm', confirmBody);
+          confirmed = true;
+          break;
+        } catch (e) {
+          // small backoff before retry
+          await new Promise((r) => setTimeout(r, 500 * attempt));
+        }
+      }
+
+      if (!confirmed) {
+        // Poll order status until PAID (30s total) so that transient failures don't leave the user confused.
+        const start = Date.now();
+        const timeoutMs = 30000;
+        const pollInterval = 2000;
+        while (Date.now() - start < timeoutMs) {
+          try {
+            const { data: polled } = await api.get(`/orders/${order.id}`);
+            if ((polled as any).status === 'PAID') {
+              confirmed = true;
+              break;
+            }
+          } catch (_) {
+            // ignore and retry
+          }
+          await new Promise((r) => setTimeout(r, pollInterval));
+        }
+      }
+
+      if (!confirmed) throw new Error('Payment succeeded but server confirmation pending; please check Orders page.');
 
       await onSuccess?.();
       router.push(returnUrl);

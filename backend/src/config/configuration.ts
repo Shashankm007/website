@@ -47,6 +47,7 @@ export interface AppConfig {
     pickupLocation?: string;
     channelId?: string;
     webhookToken?: string;
+    checkoutUrl?: string;
   };
   chatbot: {
     // Optional OpenAI-compatible endpoints for open-source models (Ollama/Groq/Together/HF…).

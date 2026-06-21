@@ -79,27 +79,38 @@ export class ShippingService {
       paymentMethod: 'Prepaid',
     });
 
-    const { awbCode, courierName } = await this.shiprocket.assignAwb(created.shipmentId);
-    await this.shiprocket.requestPickup(created.shipmentId);
-    const trackingUrl = this.shiprocket.trackingUrlFor(awbCode);
+    let awbCode: string | undefined = undefined;
+    let courierName: string | undefined = undefined;
+    let trackingUrl: string | undefined = undefined;
+
+    try {
+      const assign = await this.shiprocket.assignAwb(created.shipmentId);
+      awbCode = assign.awbCode;
+      courierName = assign.courierName;
+      await this.shiprocket.requestPickup(created.shipmentId);
+      trackingUrl = this.shiprocket.trackingUrlFor(awbCode);
+    } catch (e) {
+      this.logger.warn(`AWB assignment failed for shipment ${created.shipmentId}: ${(e as Error).message}`);
+      // Continue: persist the Shiprocket order/shipment ids so we can retry AWB assignment later.
+    }
 
     await this.prisma.order.update({
       where: { id: order.id },
       data: {
         shiprocketOrderId: created.shiprocketOrderId,
         shiprocketShipmentId: created.shipmentId,
-        awbCode,
-        courierName,
-        trackingUrl,
+        ...(awbCode ? { awbCode, courierName, trackingUrl } : {}),
       },
     });
 
-    // Sets SHIPPED + shippedAt + carrier/tracking, adds an event, emails the customer.
-    await this.orders.updateStatus(
-      order.id,
-      { status: OrderStatus.SHIPPED, carrier: courierName, trackingNumber: awbCode, note: `Shipped via Shiprocket (${courierName})` },
-      actor,
-    );
+    // If we got an AWB, mark the order as shipped and notify the customer.
+    if (awbCode) {
+      await this.orders.updateStatus(
+        order.id,
+        { status: OrderStatus.SHIPPED, carrier: courierName, trackingNumber: awbCode, note: `Shipped via Shiprocket (${courierName ?? 'unknown'})` },
+        actor,
+      );
+    }
 
     return this.prisma.order.findUnique({ where: { id: order.id }, include: { items: true } });
   }

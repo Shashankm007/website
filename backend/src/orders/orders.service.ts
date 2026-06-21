@@ -173,6 +173,37 @@ export class OrdersService {
         include: { items: true, payment: true },
       });
 
+      // If the user provided an inline shipping address (not a saved address),
+      // persist it into the user's address book so they can reuse it later.
+      if (dto.shippingAddress && !dto.shippingAddressId && userId) {
+        // Avoid creating obvious duplicates (match fullName + line1 + postalCode).
+        const dup = await tx.address.findFirst({
+          where: {
+            userId,
+            fullName: snapshot.fullName,
+            line1: snapshot.line1,
+            postalCode: snapshot.postalCode,
+          },
+        });
+        if (!dup) {
+          const existingCount = await tx.address.count({ where: { userId } });
+          await tx.address.create({
+            data: {
+              userId,
+              fullName: snapshot.fullName,
+              line1: snapshot.line1,
+              line2: snapshot.line2 ?? undefined,
+              city: snapshot.city,
+              state: snapshot.state ?? undefined,
+              postalCode: snapshot.postalCode,
+              country: snapshot.country ?? undefined,
+              phone: snapshot.phone ?? undefined,
+              isDefault: existingCount === 0,
+            },
+          });
+        }
+      }
+
       // Hold stock for STOCKED products (quantity is decremented only on payment).
       await this.adjustReservation(tx, reservableItems, +1);
 

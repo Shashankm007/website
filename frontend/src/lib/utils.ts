@@ -12,7 +12,12 @@ export function formatMoney(minor: number, currency = 'INR'): string {
 }
 
 export function formatDate(iso: string | Date): string {
-  return new Date(iso).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-IN', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'Asia/Kolkata',
+  });
 }
 
 export function formatDateTime(iso: string | Date): string {
@@ -22,6 +27,7 @@ export function formatDateTime(iso: string | Date): string {
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
   });
 }
 
