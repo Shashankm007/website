@@ -13,6 +13,7 @@ import {
   Star,
   Tags,
   Ticket,
+  Truck,
   Users,
   Warehouse,
 } from 'lucide-react';
@@ -36,6 +37,7 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/users', label: 'Users', icon: <Users className="h-4 w-4" /> },
   { href: '/admin/chats', label: 'Support chat', icon: <MessageSquare className="h-4 w-4" /> },
   { href: '/admin/analytics', label: 'Analytics', icon: <BarChart3 className="h-4 w-4" /> },
+  { href: '/admin/settings/shipping', label: 'Shipping', icon: <Truck className="h-4 w-4" /> },
   { href: '/admin/settings/banner', label: 'Banner', icon: <Megaphone className="h-4 w-4" /> },
 ];
 

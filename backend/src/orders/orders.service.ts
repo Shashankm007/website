@@ -15,14 +15,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CartService } from '../cart/cart.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { SettingsService } from '../settings/settings.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { generateInvoicePdf } from './invoice/invoice.generator';
 
-/** Flat shipping fee and free-shipping threshold (paise, INR): ₹79 flat, free over ₹999. */
-const SHIPPING_FLAT_CENTS = 7900;
-const FREE_SHIPPING_THRESHOLD_CENTS = 99900;
 /** GST rate applied to (subtotal - discount). 18% is the standard GST slab. */
 const TAX_RATE = 0.18;
 const ORDER_COUNTER_KEY = 'order_counter';
@@ -74,6 +72,7 @@ export class OrdersService {
     private readonly coupons: CouponsService,
     private readonly inventory: InventoryService,
     private readonly mail: MailService,
+    private readonly settings: SettingsService,
   ) {}
 
   // --- Checkout ------------------------------------------------------------
@@ -112,7 +111,10 @@ export class OrdersService {
     }
 
     const taxableCents = Math.max(0, subtotalCents - discountCents);
-    const shippingCents = taxableCents >= FREE_SHIPPING_THRESHOLD_CENTS ? 0 : SHIPPING_FLAT_CENTS;
+    // Shipping fee + free-shipping threshold are admin-configurable (Settings).
+    const shipping = await this.settings.getShipping();
+    const shippingCents =
+      shipping.freeShippingEnabled && taxableCents >= shipping.freeThresholdCents ? 0 : shipping.flatCents;
     const taxCents = Math.round(taxableCents * TAX_RATE);
     const totalCents = taxableCents + shippingCents + taxCents;
 

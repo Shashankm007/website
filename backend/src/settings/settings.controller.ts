@@ -7,6 +7,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UpdateBannerDto } from './dto/banner.dto';
+import { UpdateShippingDto } from './dto/shipping.dto';
 import { SettingsService } from './settings.service';
 
 @ApiTags('settings')
@@ -39,5 +40,33 @@ export class SettingsController {
       ip: req.ip,
     });
     return banner;
+  }
+
+  /** Public: current shipping configuration (storefront/checkout may read this). */
+  @Public()
+  @Get('settings/shipping')
+  getShipping() {
+    return this.settings.getShipping();
+  }
+
+  /** Admin: update shipping fee + free-shipping threshold. */
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Put('admin/settings/shipping')
+  async updateShipping(@Body() dto: UpdateShippingDto, @CurrentUser('id') actorId: string, @Req() req: Request) {
+    const shipping = await this.settings.setShipping(dto);
+    await this.audit.log({
+      actorId,
+      action: 'settings.shipping.update',
+      entity: 'Setting',
+      entityId: 'shipping',
+      metadata: {
+        flatCents: shipping.flatCents,
+        freeShippingEnabled: shipping.freeShippingEnabled,
+        freeThresholdCents: shipping.freeThresholdCents,
+      },
+      ip: req.ip,
+    });
+    return shipping;
   }
 }

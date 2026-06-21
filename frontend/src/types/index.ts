@@ -254,6 +254,14 @@ export interface Banner {
   updatedAt: string | null;
 }
 
+/** Admin-configurable shipping fee + free-shipping threshold (paise/cents). */
+export interface ShippingSettings {
+  flatCents: number;
+  freeShippingEnabled: boolean;
+  freeThresholdCents: number;
+  updatedAt: string | null;
+}
+
 export interface Coupon {
   id: string;
   code: string;
