@@ -181,7 +181,7 @@ export function AddressForm({
           {...register('postalCode')}
         />
         {pinStatus === 'loading' && <p className="mt-1 text-xs text-slate-400">Looking up city & state…</p>}
-        {pinStatus === 'ok' && <p className="mt-1 text-xs text-emerald-600">City &amp; state filled from PIN code.</p>}
+        {pinStatus === 'ok' && <p className="mt-1 text-xs text-emerald-600">Valid PIN code.</p>}
         {pinStatus === 'error' && (
           <p className="mt-1 text-xs text-amber-600">Couldn’t find that PIN — enter city/state manually.</p>
         )}
