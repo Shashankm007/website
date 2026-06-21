@@ -58,6 +58,8 @@ export function RazorpayCheckout({
           contact: customer?.phone ?? undefined,
         },
         notes: { orderNumber: order.orderNumber },
+        // A failed attempt keeps the modal open for retry; just tell the user.
+        onFailure: (reason) => toast.error(`${reason} You can try again or pick another method.`),
       });
 
       // Verify server-side and create Shiprocket shipment before treating the order as paid.

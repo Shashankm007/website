@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Coupon, DiscountType, Prisma } from '@prisma/client';
+import { Coupon, DiscountType, OrderStatus, Prisma } from '@prisma/client';
 import { paginate, Paginated } from '../common/interfaces/api-response.interface';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
 import { sanitizePlain } from '../common/utils/sanitize';
@@ -12,6 +12,15 @@ export interface CouponPricing {
   coupon: Coupon;
   discountCents: number;
 }
+
+/** Order statuses that count as a real per-user redemption (i.e. actually paid). */
+const COUNTED_COUPON_STATUSES: OrderStatus[] = [
+  OrderStatus.PAID,
+  OrderStatus.PRINTING,
+  OrderStatus.SHIPPED,
+  OrderStatus.DELIVERED,
+  OrderStatus.REFUNDED,
+];
 
 /**
  * Owns coupon validation/pricing (consumed by OrdersService) and admin CRUD.
@@ -58,9 +67,21 @@ export class CouponsService {
       throw new BadRequestException('This coupon has reached its redemption limit');
     }
     if (coupon.perUserLimit != null && userId) {
-      const used = await this.prisma.order.count({ where: { couponId: coupon.id, userId } });
+      // Count only orders the customer actually paid for, so a failed/abandoned
+      // payment never burns a one-time coupon (e.g. WELCOME10).
+      const used = await this.prisma.order.count({
+        where: {
+          couponId: coupon.id,
+          userId,
+          status: { in: COUNTED_COUPON_STATUSES },
+        },
+      });
       if (used >= coupon.perUserLimit) {
-        throw new BadRequestException('You have already used this coupon the maximum number of times');
+        throw new BadRequestException(
+          coupon.perUserLimit === 1
+            ? 'You have already used this coupon'
+            : 'You have already used this coupon the maximum number of times',
+        );
       }
     }
 

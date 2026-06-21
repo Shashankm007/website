@@ -25,6 +25,8 @@ export interface OpenCheckoutOptions {
   prefill?: { name?: string; email?: string; contact?: string };
   notes?: Record<string, string>;
   themeColor?: string;
+  /** Called on a failed attempt. Does NOT end the flow — Razorpay keeps the modal open for retry. */
+  onFailure?: (reason: string) => void;
 }
 
 /** Inject checkout.js once; resolves true when window.Razorpay is available. */
@@ -45,8 +47,14 @@ export function loadRazorpay(): Promise<boolean> {
 }
 
 /**
- * Opens the Razorpay modal. Resolves with the signed handler response (to be
- * verified server-side via POST /payments/verify); rejects on dismiss/failure.
+ * Opens the Razorpay modal and resolves with the signed handler response on a
+ * SUCCESSFUL payment (verify it server-side before trusting it).
+ *
+ * A failed attempt does NOT end the flow: Razorpay keeps the modal open so the
+ * user can retry (e.g. switch UPI app or card). We only surface the reason via
+ * `onFailure`. The eventual success still fires `handler` (→ resolve), and if
+ * the user closes the modal `ondismiss` fires (→ reject 'Payment cancelled').
+ * This is what makes a "fail → retry → succeed" flow reflect on the site.
  */
 export async function openRazorpayCheckout(options: OpenCheckoutOptions): Promise<RazorpayHandlerResponse> {
   const ok = await loadRazorpay();
@@ -55,6 +63,14 @@ export async function openRazorpayCheckout(options: OpenCheckoutOptions): Promis
   return new Promise<RazorpayHandlerResponse>((resolve, reject) => {
     const RazorpayCtor = (window as unknown as { Razorpay: new (opts: Record<string, unknown>) => RazorpayInstance })
       .Razorpay;
+
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
     const rzp = new RazorpayCtor({
       key: options.key,
       amount: options.amount,
@@ -65,51 +81,18 @@ export async function openRazorpayCheckout(options: OpenCheckoutOptions): Promis
       prefill: options.prefill,
       notes: options.notes,
       theme: { color: options.themeColor ?? '#4f46e5' },
-      handler: (resp: RazorpayHandlerResponse) => resolve(resp),
-      modal: { ondismiss: () => reject(new Error('Payment cancelled')) },
+      // Razorpay calls this with the signed response once a payment SUCCEEDS,
+      // including after one or more failed attempts in the same modal.
+      handler: (resp: RazorpayHandlerResponse) => finish(() => resolve(resp)),
+      // User closed the modal without a successful payment.
+      modal: { ondismiss: () => finish(() => reject(new Error('Payment cancelled'))) },
     });
-    let settled = false;
-    const forceClose = () => {
-      try {
-        if (typeof (rzp as any).close === 'function') (rzp as any).close();
-      } catch (e) {
-        // Fallback: remove any Razorpay iframe(s) from the DOM
-        try {
-          const iframes = Array.from(document.getElementsByTagName('iframe')) as HTMLIFrameElement[];
-          for (const f of iframes) {
-            const src = f.src || '';
-            if (src.includes('checkout.razorpay.com') || src.includes('razorpay.com')) f.remove();
-          }
-          // remove any overlays that Razorpay may have added
-          const overlays = Array.from(document.querySelectorAll('[id^="razorpay-"]'));
-          overlays.forEach((el) => el.remove());
-        } catch {}
-      }
-    };
 
-    const settle = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      forceClose();
-      fn();
-    };
+    // Surface a failed attempt but keep the modal open for retry — do not settle.
+    rzp.on('payment.failed', (resp: { error?: { description?: string } }) => {
+      options.onFailure?.(resp?.error?.description ?? 'Payment failed. Please try again.');
+    });
 
-    rzp.on('payment.failed', (resp: { error?: { description?: string } }) =>
-      settle(() => reject(new Error(resp?.error?.description ?? 'Payment failed'))),
-    );
-
-    // Safety timeout: if user/checkout hangs, close modal and reject after 60s
-    const timeout = setTimeout(() => settle(() => reject(new Error('Payment timeout'))), 60000);
-
-    const cleanup = () => clearTimeout(timeout);
-    // Wrap resolve/reject to cleanup timer
-    const origResolve = resolve;
-    const origReject = reject;
-    // override via rzp handler by wrapping
-    (rzp as any).handler = (resp: RazorpayHandlerResponse) => {
-      cleanup();
-      settle(() => origResolve(resp));
-    };
     rzp.open();
   });
 }
