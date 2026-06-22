@@ -146,6 +146,11 @@ export class CreateProductDto {
   @IsBoolean()
   featured?: boolean;
 
+  @ApiPropertyOptional({ default: false, description: 'Show the engraving / custom-text field on the product page' })
+  @IsOptional()
+  @IsBoolean()
+  allowEngraving?: boolean;
+
   @ApiPropertyOptional({ description: 'Weight in grams (for shipping)', minimum: 0 })
   @IsOptional()
   @Type(() => Number)

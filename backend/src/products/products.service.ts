@@ -449,6 +449,7 @@ export class ProductsService {
           fulfillment: dto.fulfillment,
           customizationType: dto.customizationType ?? undefined,
           featured: dto.featured ?? false,
+          allowEngraving: dto.allowEngraving ?? false,
           weightGrams: dto.weightGrams ?? null,
           categories: dto.categoryIds?.length
             ? { create: dto.categoryIds.map((categoryId) => ({ categoryId })) }
@@ -510,6 +511,7 @@ export class ProductsService {
     if (dto.fulfillment !== undefined) data.fulfillment = dto.fulfillment;
     if (dto.customizationType !== undefined) data.customizationType = dto.customizationType;
     if (dto.featured !== undefined) data.featured = dto.featured;
+    if (dto.allowEngraving !== undefined) data.allowEngraving = dto.allowEngraving;
     if (dto.weightGrams !== undefined) data.weightGrams = dto.weightGrams ?? null;
 
     let removedMediaKeys: string[] = [];

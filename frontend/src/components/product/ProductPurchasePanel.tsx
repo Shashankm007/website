@@ -231,14 +231,16 @@ export function ProductPurchasePanel({ product }: { product: ProductDetail }) {
         );
       })}
 
-      {/* Engraving */}
-      <Input
-        label="Engraving text (optional)"
-        placeholder="Add a custom message…"
-        maxLength={120}
-        value={customText}
-        onChange={(e) => setCustomText(e.target.value)}
-      />
+      {/* Engraving — only for products the admin enabled it on */}
+      {product.allowEngraving && (
+        <Input
+          label="Engraving text (optional)"
+          placeholder="Add a custom message…"
+          maxLength={120}
+          value={customText}
+          onChange={(e) => setCustomText(e.target.value)}
+        />
+      )}
 
       {/* Customer customization: file upload (STL/photo) or a MakerWorld link */}
       {needsUpload && (

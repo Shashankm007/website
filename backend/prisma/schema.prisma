@@ -246,6 +246,7 @@ model Product {
   fulfillment     FulfillmentType @default(STOCKED)
   customizationType CustomizationType @default(NONE) // requires a customer file upload?
   featured        Boolean         @default(false)
+  allowEngraving  Boolean         @default(false) // show the engraving / custom-text field on the product page
   weightGrams     Int? // for shipping calc
   // denormalized aggregates for fast sorting/filtering
   ratingAvg       Float           @default(0)

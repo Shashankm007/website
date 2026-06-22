@@ -111,6 +111,7 @@ export interface ProductDetail extends ProductCard {
   sku: string;
   currency: string;
   customizationType: CustomizationType;
+  allowEngraving?: boolean;
   media: MediaItem[];
   options: ProductOption[];
   categories: Category[];

@@ -36,6 +36,7 @@ export interface ProductDetailLike {
   status: ProductStatus;
   fulfillment: FulfillmentType;
   featured?: boolean;
+  allowEngraving?: boolean;
   weightGrams?: number | null;
   categories?: ({ id: string } | { category: { id: string } })[];
   tags?: (string | { name?: string; tag?: { name: string } })[];
@@ -67,6 +68,7 @@ const schema = z
     price: z.coerce.number({ invalid_type_error: 'Enter a price' }).min(0, 'Must be ≥ 0'),
     compareAt: z.string().optional(),
     customizationType: z.enum(['NONE', 'STL_UPLOAD', 'PHOTO_UPLOAD']),
+    allowEngraving: z.boolean(),
     status: z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']),
     fulfillment: z.enum(['STOCKED', 'MADE_TO_ORDER']),
     featured: z.boolean(),
@@ -117,6 +119,7 @@ function buildDefaults(product?: ProductDetailLike, prefillMedia: MediaEntry[] =
     price: product ? product.priceCents / 100 : 0,
     compareAt: centsToDollars(product?.compareAtCents),
     customizationType: product?.customizationType ?? 'NONE',
+    allowEngraving: product?.allowEngraving ?? false,
     status: product?.status ?? 'DRAFT',
     fulfillment: product?.fulfillment ?? 'STOCKED',
     featured: product?.featured ?? false,
@@ -225,6 +228,7 @@ export function ProductForm({ product }: ProductFormProps) {
       priceCents: Math.round(values.price * 100),
       compareAtCents: dollarsToCents(values.compareAt),
       customizationType: values.customizationType,
+      allowEngraving: values.allowEngraving,
       status: values.status,
       fulfillment: values.fulfillment,
       featured: values.featured,
@@ -357,6 +361,10 @@ export function ProductForm({ product }: ProductFormProps) {
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600" {...register('featured')} />
           Featured product
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600" {...register('allowEngraving')} />
+          Allow engraving / custom text <span className="text-slate-400">(shows an engraving field on the product page)</span>
         </label>
       </section>
 
